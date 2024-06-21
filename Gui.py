@@ -112,9 +112,19 @@ class DropletGui(tk.Tk):
         config.close()
         return lines
 
-    def auto_cleaning(self):
-            # create sequence to take Toluol multiple times and dispense for cleaning
-
+    def auto_cleaning(self, clean_y, empty_y, container_x, file):
+        # create sequence to take Toluol multiple times and dispense for cleaning
+        file.write("\n\n: Create cleaning sequence\n")
+        for number in range(0,3):
+            file.write('G0 Z32 F1000\n')
+            file.write('G0 X' + str(container_x) + ' Y' + str(clean_y) + ' F5000\n')
+            file.write('G0 Z-7 F1000\n')
+            file.write('G1 E30 F500\n')
+            file.write('G0 Z32 F1000\n')
+            file.write('G0 X' + str(container_x) + ' Y' + str(empty_y) + ' F5000\n')
+            file.write('G0 Z-7 F1000\n')
+            file.write('G1 E-30 F500\n')
+        file.write('G0 Z32 F1000\n')
 
     def save_file(self):
 
@@ -190,7 +200,7 @@ class DropletGui(tk.Tk):
         file.write('G92 X100 Y100 Z4 E0\n')  # setting Z to for allows for going below 0 i.e. crash into the metal,
                                             # adjust  carefully
         file.write('G0 Z32 F1000\n\n')
-
+        file.write('G1 E60 F500\n')
         # movement loop
         for grid in range(grids):
             loop_counter = loop_counter + 1
@@ -200,7 +210,7 @@ class DropletGui(tk.Tk):
             x_container = x_loading_calibration + 167
             self.y_container_4 = y_loading_calibration + 29
             container_z = -10
-            # choosing between container 1 to 4
+            # choosing between container 1 to 2
             match loading_container:
                 case 1:
                     self.y_container_1 = self.y_container_4 - 75
@@ -208,15 +218,19 @@ class DropletGui(tk.Tk):
                 case 2:
                     self.y_container_2 = self.y_container_4 - 50
                     y_container_load = self.y_container_2
-                case 3:
+            '''  case 3:
                     self.y_container_3 = self.y_container_4 - 25
                     y_container_load = self.y_container_3
                 case 4:
-                    y_container_load = self.y_container_4
+                    y_container_load = self.y_container_4'''
 
-            # select loading for second grid
+            # select loading for second grid, dependent on loading of first container
             if loop_counter == 2:
-                y_container_load = y_container_load + 25
+                match loading_container:
+                    case 1:
+                        y_container_load = y_container_load + 25
+                    case 2:
+                        y_container_load = y_container_load - 25
 
             file.write('G0 X' + str(x_container) + ' Y' + str(y_container_load) + ' F5000\n')
             file.write('G0 Z' + str(container_z) + ' F500\n')
@@ -257,20 +271,24 @@ class DropletGui(tk.Tk):
             # emptying syringe
             emptying_container = int(self.entry[10].get())
             match emptying_container:
-                case 1:
-                    y_container_emptying = self.y_container_1
-                case 2:
-                    y_container_emptying = self.y_container_2
                 case 3:
                     y_container_emptying = self.y_container_3
                 case 4:
                     y_container_emptying = self.y_container_4
 
+            match emptying_container:
+                case 3:
+                    y_container_cleaning = y_container_emptying + 25
+                case 4:
+                    y_container_cleaning = y_container_emptying - 25
+
             file.write('\nG0 Z32 F1000 ; dispensing leftovers\n')
             file.write('G0 X' + str(x_container) + ' Y' + str(y_container_emptying) + ' F5000\n')
             file.write('G0 Z-7 F500\n')
-            file.write('G1 E-10 F500\nG1 E20 F500\nG1 E-20 F500\n')
-            file.write('G0 Z32 F1000\nG04 S10\n')
+            file.write('G1 E-30 F500\n')
+            file.write('G0 Z32 F1000\n')
+            # perform cleaning sequence
+            self.auto_cleaning(y_container_cleaning,y_container_emptying,x_container,file)
             e_abs = 0
 
 

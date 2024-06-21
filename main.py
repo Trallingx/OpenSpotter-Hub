@@ -13,8 +13,8 @@ if __name__ == "__main__":
                       ("X step size", list_of_defaults[6], "mm"),  # 6
                       ("Y step size", list_of_defaults[7], "mm"),  # 7
                       ("Dispense Volume", list_of_defaults[8], "uL"),  #
-                      ("Loading from", list_of_defaults[9], "1 to 4 "),  # 9
-                      ("Left-overs into", list_of_defaults[10], "1-4"),  # 10
+                      ("Loading from", list_of_defaults[9], "1 to 2 "),  # 9
+                      ("Left-overs into", list_of_defaults[10], "3 to 4"),  # 10
                       ("Z-Adjust down", list_of_defaults[11], "mm"),  # 11
                       ("droplet forming time", list_of_defaults[12], "s"),  # 12
                       ("number of grids",list_of_defaults[13], "1-2"),  # 13
