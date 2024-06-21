@@ -17,7 +17,7 @@ if __name__ == "__main__":
                       ("Left-overs into", list_of_defaults[10], "3 to 4"),  # 10
                       ("Z-Adjust down", list_of_defaults[11], "mm"),  # 11
                       ("droplet forming time", list_of_defaults[12], "s"),  # 12
-                      ("number of grids",list_of_defaults[13], "1-2"),  # 13
+                      ("number of grids", list_of_defaults[13], "1-2"),  # 13
                       ("grid offset x", list_of_defaults[14], "mm"),  # 14
                       ("grid offset y", list_of_defaults[15], "mm"),  # 15
                       ]
