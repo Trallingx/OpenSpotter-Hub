@@ -22,7 +22,7 @@ for i in range(rows):
     file.write(line)
 
 # X inside square left at exactly 30
-# Y inside square down at 82
+# Y inside square down at 82 88okoj
 
 # defining coordinates
 x_abs = 32
