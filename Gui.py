@@ -104,13 +104,17 @@ class DropletGui(tk.Tk):
             config.write(save+"\n")
         config.close()
 
-    def read_defaults(selfself):
+    def read_defaults(self):
         config = open("config.txt", "r")
         lines = config.readlines()
         for i in range(len(lines)):
             lines[i] = lines[i].replace("\n","")
         config.close()
         return lines
+
+    def auto_cleaning(self):
+            # create sequence to take Toluol multiple times and dispense for cleaning
+
 
     def save_file(self):
 
