@@ -112,19 +112,19 @@ class DropletGui(tk.Tk):
         config.close()
         return lines
 
-    def auto_cleaning(self, clean_y, empty_y, container_x, file):
+    def auto_cleaning(self, clean_y, empty_y, container_x, file,z_high,z_low):
         # create sequence to take Toluol multiple times and dispense for cleaning
         file.write("\n\n: Create cleaning sequence\n")
         for number in range(0,3):
-            file.write('G0 Z32 F2000\n')
+            file.write('G0 Z' + str(z_high) + ' F2000\n')
             file.write('G0 X' + str(container_x) + ' Y' + str(clean_y) + ' F5000\n')
-            file.write('G0 Z-7 F2000\n')
+            file.write('G0 Z' + str(z_low) + ' F2000\n')
             file.write('G1 E20 F500\n')
-            file.write('G0 Z32 F2000\n')
+            file.write('G0 Z' + str(z_high) + ' F2000\n')
             file.write('G0 X' + str(container_x) + ' Y' + str(empty_y) + ' F5000\n')
-            file.write('G0 Z0 F2000\n')
+            file.write('G0 Z' + str(z_low) + ' F2000\n')
             file.write('G1 E-20 F500\n')
-        file.write('G0 Z32 F2000\n')
+        file.write('G0 Z' + str(z_high) + ' F2000\n')
 
     def save_file(self):
 
@@ -145,8 +145,8 @@ class DropletGui(tk.Tk):
 
         # defining coordinates
         loop_counter = 0
-        x_loading_calibration = 32
-        y_loading_calibration = 85
+        x_loading_calibration = 32.25
+        y_loading_calibration = 86
         x_abs = float(self.entry[0].get())
         y_abs = float(self.entry[1].get())
         x_offset = x_abs + float(self.entry[2].get())
@@ -157,6 +157,8 @@ class DropletGui(tk.Tk):
         y_shift = float(self.entry[7].get())
         z = 4
         z_low = 3-float(self.entry[11].get())
+        z_high = 40
+        container_z = 11
         index = 0
         e_abs = 0
         extrude = -float(self.entry[8].get())
@@ -193,13 +195,13 @@ class DropletGui(tk.Tk):
         file.write(";TYPE:Custom\nM862.3 P \"MK3S\" ; printer model check")
         file.write('\nM406 ; Filament sensor off\nG90 ;use absolute coordinates\nG21 ;unit mm\n')
         file.write('\n;Homing sequence\n')
-        file.write('G0 Z32 F3000 ;Lift Z to prevent scratching and allow leveling\n')
+        file.write('G0 Z' + str(z_high) + ' F3000 ;Lift Z to prevent scratching and allow leveling\n')
         file.write('\nG28 [X] [Y]\n')
         file.write('G0 X90 Y90 F3000\nG92 [X] [Y]\n')
         file.write('G28 [Z]\n')
         file.write('G92 X100 Y100 Z4 E0\n')  # setting Z to for allows for going below 0 i.e. crash into the metal,
                                             # adjust  carefully
-        file.write('G0 Z32 F3000\n\n')
+        file.write('G0 Z' + str(z_high) + ' F3000\n\n')
         file.write('G1 E10 F500\nG92 E0\n')
         # movement loop
         for grid in range(grids):
@@ -209,7 +211,7 @@ class DropletGui(tk.Tk):
             loading_container = int(self.entry[9].get())
             x_container = x_loading_calibration + 167
             self.y_container_4 = y_loading_calibration + 29
-            container_z = 0
+
             # choosing between container 1 to 2
             match loading_container:
                 case 1:
@@ -237,7 +239,7 @@ class DropletGui(tk.Tk):
             total_fill = 0
             total_fill = rows * cols * -extrude
             file.write(('G1 E' + str(total_fill+30) + ' F250; Filling the syringe\n'))
-            file.write('G0 Z32 F3000\n')
+            file.write('G0 Z' + str(z_high) + ' F3000\n')
             file.write('G92 E0\n\n')
             file.write('G1 E-20 F500 ; dispense first drop\nG04 S5; wait 5 seconds for drop to fall\n')
             file.write('G0 X' + str(x_abs) + ' Y' + str(y_abs) + ' F5000\n')
@@ -260,7 +262,7 @@ class DropletGui(tk.Tk):
                 # check for beginning of each row
                 remainder = i % cols
                 if remainder == 0:  # if beginning of row add wait to remove oscillations
-                    file.write("G4 S0.5\n")
+                    file.write("G4 S0.2\n")
                 file.write("M211 S0 ; disable endstops to allow for lower than 0 calibration movement\n")
                 file.write('G1 E' + str(extrude) + ' F500\nG92 E0\nG4 S' + str(droplet_wait_time) + '\n')
                 file.write('G0 Z' + str(z_low) + ' F500 ;let the droplet touch the cantilever\n')
@@ -282,13 +284,13 @@ class DropletGui(tk.Tk):
                 case 4:
                     y_container_cleaning = y_container_emptying - 25
 
-            file.write('\nG0 Z32 F1000 ; dispensing leftovers\n')
+            file.write('\nG0 Z' + str(z_high) + ' F1000 ; dispensing leftovers\n')
             file.write('G0 X' + str(x_container) + ' Y' + str(y_container_emptying) + ' F5000\n')
-            file.write('G0 Z-7 F500\n')
+            file.write('G0 Z' + str(container_z) + ' F500\n')
             file.write('G1 E-10 F500\n')
-            file.write('G0 Z32 F1000\n')
+            file.write('G0 Z' + str(z_high) + ' F1000\n')
             # perform cleaning sequence
-            self.auto_cleaning(y_container_cleaning,y_container_emptying,x_container,file)
+            self.auto_cleaning(y_container_cleaning, y_container_emptying, x_container, file, z_high, container_z)
             e_abs = 0
 
 
