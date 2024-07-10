@@ -5,14 +5,16 @@ import tkinter as tk
 from tkinter.ttk import *
 from PIL import ImageTk, Image
 
-#from SpotterFunctions import SpotterFunctions
-
 
 class DropletGui(tk.Tk):
     def __init__(self):
         super(DropletGui, self).__init__()
-
-
+        self.y_container_1 = None
+        self.y_container_2 = None
+        self.y_container_3 = None
+        self.y_container_4 = None
+        self.total_fill = None
+        self.entry = None
 
         # Setting up basic UI structure
         self.title('Droplet-Gcode')
@@ -87,12 +89,7 @@ class DropletGui(tk.Tk):
 
     '''class SpotterFunctions:
         def __init__(self) -> None:
-            self.y_container_1 = None
-            self.y_container_2 = None
-            self.y_container_3 = None
-            self.y_container_4 = None
-            self.total_fill = None
-            self.entry = None
+            
     
             self.gui = DropletGui()
     '''
