@@ -4,8 +4,8 @@ if __name__ == "__main__":
     Gui = DropletGui()
     list_of_defaults = Gui.read_defaults()
     print(list_of_defaults)
-    list_of_inputs = [("Y off X-line", list_of_defaults[0], "mm"),  # 0
-                      ("X off Y-line", list_of_defaults[1], "mm"),  # 1
+    list_of_inputs = [("X cord. of the Y-line", list_of_defaults[0], "mm"),  # 0
+                      ("Y cord. of the Y-line", list_of_defaults[1], "mm"),  # 1
                       ("First Cantilever X-offset", list_of_defaults[2], "mm"),  # 2
                       ("First Cantilever Y-offset", list_of_defaults[3], "mm"),  # 3
                       ("Set rows", list_of_defaults[4], "int"),  # 4
