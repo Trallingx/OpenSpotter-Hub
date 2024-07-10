@@ -257,7 +257,7 @@ class DropletGui(tk.Tk):
 
             # writing the movement sequence
             for i in range(rows * cols):
-                line = 'G0 ' + coordinates[i] + ' F3000' + '\n'
+                line = 'G0 ' + coordinates[i] + ' F1000' + '\n'
                 file.write(line)
                 # check for beginning of each row
                 remainder = i % cols
@@ -265,9 +265,9 @@ class DropletGui(tk.Tk):
                     file.write("G4 S0.2\n")
                 file.write("M211 S0 ; disable endstops to allow for lower than 0 calibration movement\n")
                 file.write('G1 E' + str(extrude) + ' F500\nG92 E0\nG4 S' + str(droplet_wait_time) + '\n')
-                file.write('G0 Z' + str(z_low) + ' F500 ;let the droplet touch the cantilever\n')
+                file.write('G0 Z' + str(z_low) + ' F50 ;let the droplet touch the cantilever\n')
                 e_abs = e_abs + abs(extrude)
-                file.write('G0 Z4 F4000\n')
+                file.write('G0 Z4 F40\n')
                 file.write("M211 S1 ; enable endstops\n")
 
             # emptying syringe
