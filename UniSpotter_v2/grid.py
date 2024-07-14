@@ -33,27 +33,28 @@ class Grid(object):
                           ("9: grid offset x", grid_defaults[9], "mm"),     # 14
                           ("10: grid offset y", grid_defaults[10], "mm"),   # 15
                           ]
-        self.create_labels(list_of_inputs)
+        create_labels(list_of_inputs, self.entry, self.input_frame)
 
-    def create_labels(self, list_of_inputs):
-        label = []
-        labelx = []
 
-        for i in enumerate(list_of_inputs):
-            label.append('label' + str(i))
-            labelx.append('labelx' + str(i))
-            self.entry.append('entry' + str(i))
+def create_labels(list_of_inputs, entry, input_frame):
+    label = []
+    labelx = []
 
-        for inputs in list_of_inputs:
-            # create widgets
-            label[list_of_inputs.index(inputs)] = tk.Label(self.input_frame, text=inputs[0])
-            self.entry[list_of_inputs.index(inputs)] = tk.Entry(self.input_frame, bd=5)
-            labelx[list_of_inputs.index(inputs)] = tk.Label(self.input_frame, text=inputs[2])
-            # starting values
-            self.entry[list_of_inputs.index(inputs)].insert(0, inputs[1])
-            # place widgets using grid()
-            label[list_of_inputs.index(inputs)].grid(row=list_of_inputs.index(inputs), column=0, sticky="WE", pady=2)
-            self.entry[list_of_inputs.index(inputs)].grid(row=list_of_inputs.index(inputs), column=1)
-            labelx[list_of_inputs.index(inputs)].grid(row=list_of_inputs.index(inputs), column=2, sticky="WE", pady=2)
+    for i in enumerate(list_of_inputs):
+        label.append('label' + str(i))
+        labelx.append('labelx' + str(i))
+        entry.append('entry' + str(i))
+
+    for inputs in list_of_inputs:
+        # create widgets
+        label[list_of_inputs.index(inputs)] = tk.Label(input_frame, text=inputs[0])
+        entry[list_of_inputs.index(inputs)] = tk.Entry(input_frame, bd=5)
+        labelx[list_of_inputs.index(inputs)] = tk.Label(input_frame, text=inputs[2])
+        # starting values
+        entry[list_of_inputs.index(inputs)].insert(0, inputs[1])
+        # place widgets using grid()
+        label[list_of_inputs.index(inputs)].grid(row=list_of_inputs.index(inputs), column=0, sticky="WE", pady=2)
+        entry[list_of_inputs.index(inputs)].grid(row=list_of_inputs.index(inputs), column=1)
+        labelx[list_of_inputs.index(inputs)].grid(row=list_of_inputs.index(inputs), column=2, sticky="WE", pady=2)
 
 

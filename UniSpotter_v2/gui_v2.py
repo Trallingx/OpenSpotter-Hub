@@ -24,6 +24,7 @@ class DropletGui(tk.Tk):
         self.main_frame = tk.Frame(self)
         self.main_frame.grid()
 
+        # global setting (blue)
         self.global_frame = tk.Frame(self.main_frame)
         self.global_frame.grid(row=1, column=0)
 
@@ -109,27 +110,6 @@ class DropletGui(tk.Tk):
                 save_defaults(self.grid_1.entry, "config_grid_1.txt")
                 save_defaults(self.grid_2.entry, "config_grid_2.txt")
 
-    def create_labels(self, list_of_inputs):
-        label = []
-        labelx = []
-
-        for i in enumerate(list_of_inputs):
-            label.append('label' + str(i))
-            labelx.append('labelx' + str(i))
-            self.entry.append('entry' + str(i))
-
-        for inputs in list_of_inputs:
-            # create widgets
-            label[list_of_inputs.index(inputs)] = tk.Label(self.global_input_frame, text=inputs[0])
-            self.entry[list_of_inputs.index(inputs)] = tk.Entry(self.global_input_frame, bd=5)
-            labelx[list_of_inputs.index(inputs)] = tk.Label(self.global_input_frame, text=inputs[2])
-            # starting values
-            self.entry[list_of_inputs.index(inputs)].insert(0, inputs[1])
-            # place widgets using grid()
-            label[list_of_inputs.index(inputs)].grid(row=list_of_inputs.index(inputs), column=0, sticky="WE", pady=2)
-            self.entry[list_of_inputs.index(inputs)].grid(row=list_of_inputs.index(inputs), column=1)
-            labelx[list_of_inputs.index(inputs)].grid(row=list_of_inputs.index(inputs), column=2, sticky="WE", pady=2)
-
     def adding_pictures(self):
         picture_label = tk.Label(self.picture_frame, text="Build plate information")
         picture_label.grid()
@@ -164,8 +144,3 @@ def open_secondary_window(text):
         command=secondary_window.destroy
     )
     button_close.place(x=75, y=75)
-
-
-
-
-

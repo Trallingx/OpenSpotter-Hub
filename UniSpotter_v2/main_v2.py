@@ -11,5 +11,5 @@ if __name__ == "__main__":
                       ("3: First Spot X-offset", global_defaults[2], "mm"),  # 2
                       ("4: First Spot Y-offset", global_defaults[3], "mm"),  # 3
                       ]
-    Gui.create_labels(list_of_inputs)
+    create_labels(list_of_inputs, Gui.entry, Gui.global_input_frame)
     Gui.mainloop()
