@@ -5,6 +5,7 @@ import tkinter as tk
 from tkinter.ttk import *
 from PIL import ImageTk, Image
 from grid import *
+from create_gcode import *
 
 
 class DropletGui(tk.Tk):
@@ -43,15 +44,31 @@ class DropletGui(tk.Tk):
         self.button_frame.grid(row=2, columnspan=2)
         self.create_buttons()
 
+    def create_buttons(self):
+        add_grid_button = Button(self.button_frame, text="create grid", command=self.instance_grid)
+        add_grid_button.grid(row=3, column=1)
+
+        remove_grid_button = Button(self.button_frame, text="remove grid", command=self.subtract_grid)
+        remove_grid_button.grid(row=3, column=2)
+
+        check_input_button = Button(self.button_frame, text="check input", command="check_input")
+        check_input_button.grid(row=5, column=0)
+
+        create_gcode_button = Button(self.button_frame, text="create G-code", command=self.save_file)
+        create_gcode_button.grid(row=5, column=1)
+
+        check_save_button = Button(self.button_frame, text="save defaults", command=self.check_saves)
+        check_save_button.grid(row=5, column=2)
+
     def instance_grid(self):
         match self.grid_count:
             case 0:
                 self.grid_count += 1
-                self.grid_1 = Grid(self.main_frame, 4, 0, "config_grid_1.txt")
+                self.grid_1 = Grid(self.main_frame, 4, 0, "config_grid_1.txt", "lightgreen")
 
             case 1:
                 self.grid_count += 1
-                self.grid_2 = Grid(self.main_frame, 4, 1, "config_grid_2.txt")
+                self.grid_2 = Grid(self.main_frame, 4, 1, "config_grid_2.txt", "orange")
             case 2:
                 open_secondary_window("Cannot add more grids")
 
@@ -70,8 +87,9 @@ class DropletGui(tk.Tk):
             case 0:
                 open_secondary_window("No more grids available")
             case 1:
-                self.grid_count -= 1
-                self.grid_1.input_frame.destroy()
+                open_secondary_window("One grid required")
+                '''self.grid_count -= 1
+                self.grid_1.input_frame.destroy()'''
             case 2:
                 self.grid_count -= 1
                 self.grid_2.input_frame.destroy()
@@ -108,25 +126,9 @@ class DropletGui(tk.Tk):
             # starting values
             self.entry[list_of_inputs.index(inputs)].insert(0, inputs[1])
             # place widgets using grid()
-            label[list_of_inputs.index(inputs)].grid(row=list_of_inputs.index(inputs), column=0, sticky=W, pady=2)
+            label[list_of_inputs.index(inputs)].grid(row=list_of_inputs.index(inputs), column=0, sticky="WE", pady=2)
             self.entry[list_of_inputs.index(inputs)].grid(row=list_of_inputs.index(inputs), column=1)
-            labelx[list_of_inputs.index(inputs)].grid(row=list_of_inputs.index(inputs), column=2, sticky=W, pady=2)
-
-    def create_buttons(self):
-        add_grid_button = Button(self.button_frame, text="create grid", command=self.instance_grid)
-        add_grid_button.grid(row=3, column=1)
-
-        remove_grid_button = Button(self.button_frame, text="remove grid", command=self.subtract_grid)
-        remove_grid_button.grid(row=3, column=2)
-
-        check_input_button = Button(self.button_frame, text="check input", command="check_input")
-        check_input_button.grid(row=5, column=0)
-
-        create_gcode_button = Button(self.button_frame, text="create G-code", command="save_file")
-        create_gcode_button.grid(row=5, column=1)
-
-        check_save_button = Button(self.button_frame, text="save defaults", command=self.check_saves)
-        check_save_button.grid(row=5, column=2)
+            labelx[list_of_inputs.index(inputs)].grid(row=list_of_inputs.index(inputs), column=2, sticky="WE", pady=2)
 
     def adding_pictures(self):
         picture_label = tk.Label(self.picture_frame, text="Build plate information")
@@ -146,6 +148,9 @@ class DropletGui(tk.Tk):
         spots_picture = Label(self.global_frame, image=photo)
         spots_picture.image = photo
         spots_picture.grid(row=0, column=0)
+
+    def save_file(self):
+        save_file(self.grid_count, self)
 
 
 def open_secondary_window(text):

@@ -1,12 +1,10 @@
-from PIL._tkinter_finder import tk
-
 from gui_v2 import *
 from SpotterFunctions import *
 import logging
 
 
 class Grid(object):
-    def __init__(self, gui, frame_row, frame_col, config):
+    def __init__(self, gui, frame_row, frame_col, config, background):
         self.gui = gui
         self.grid_entry = None
         self.input_frame = None
@@ -14,11 +12,11 @@ class Grid(object):
         self.grid = None
         self.frame_row = frame_row
         self.frame_col = frame_col
-        self.create_grid(config)
+        self.create_grid(config, background)
 
-    def create_grid(self, config):
+    def create_grid(self, config, background):
         self.input_frame = tk.Frame(self.gui)
-        self.input_frame.config(bg="lightgreen", border=5)
+        self.input_frame.config(bg=background, border=5)
         self.input_frame.grid(row=self.frame_row, column=self.frame_col)
 
         grid_defaults: list[float] = read_defaults(config)
@@ -54,8 +52,8 @@ class Grid(object):
             # starting values
             self.entry[list_of_inputs.index(inputs)].insert(0, inputs[1])
             # place widgets using grid()
-            label[list_of_inputs.index(inputs)].grid(row=list_of_inputs.index(inputs), column=0, sticky=W, pady=2)
+            label[list_of_inputs.index(inputs)].grid(row=list_of_inputs.index(inputs), column=0, sticky="WE", pady=2)
             self.entry[list_of_inputs.index(inputs)].grid(row=list_of_inputs.index(inputs), column=1)
-            labelx[list_of_inputs.index(inputs)].grid(row=list_of_inputs.index(inputs), column=2, sticky=W, pady=2)
+            labelx[list_of_inputs.index(inputs)].grid(row=list_of_inputs.index(inputs), column=2, sticky="WE", pady=2)
 
 
