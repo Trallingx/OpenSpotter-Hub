@@ -42,6 +42,7 @@ class DropletGui(tk.Tk):
         save_button.grid(row=2, column=0)
         save_button = Button(self.main_frame, text="create file", command=self.save_file)
         save_button.grid(row=2, column=1)
+
         save_button = Button(self.main_frame, text="save defaults", command=self.save_defaults)
         save_button.grid(row=2, column=2)
 
@@ -58,7 +59,7 @@ class DropletGui(tk.Tk):
         self.entry = []
         labelx = []
 
-        for i in range(0, len(list_of_inputs)):
+        for i in enumerate(list_of_inputs):
             label.append('label' + str(i))
             labelx.append('labelx' + str(i))
             self.entry.append('entry' + str(i))
@@ -74,6 +75,7 @@ class DropletGui(tk.Tk):
             label[list_of_inputs.index(inputs)].grid(row=list_of_inputs.index(inputs), column=0, sticky=W, pady=2)
             self.entry[list_of_inputs.index(inputs)].grid(row=list_of_inputs.index(inputs), column=1)
             labelx[list_of_inputs.index(inputs)].grid(row=list_of_inputs.index(inputs), column=2, sticky=W, pady=2)
+
 
     def open_secondary_window(self):
         secondary_window = tk.Toplevel()
@@ -113,7 +115,6 @@ class DropletGui(tk.Tk):
         total_height = float(entry[4]) * float(entry[7]) + float(entry[3])
         if total_width >= 20 or total_height >= 40:
             self.open_secondary_window()
-
 
     def save_defaults(self):
         entry = self.read_entries()
