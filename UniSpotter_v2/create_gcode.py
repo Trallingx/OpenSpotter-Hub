@@ -1,5 +1,8 @@
 from tkinter import filedialog
-from SpotterFunctions import *
+from SpotterFunctions import read_entries
+from SpotterFunctions import create_coordinates
+from SpotterFunctions import select_loading_container
+from SpotterFunctions import select_cleaning_containers
 
 
 def save_file(grid_count, self):
@@ -43,15 +46,15 @@ def save_file(grid_count, self):
         index = 0
         emptying_container = int(entry[6])
         # z calibrations
-        z_low = 3 - float(entry[6])
+        z_low = 3 - float(entry[7])
         z = 4
         container_z = 11
         # waiting time upon which the droplet forms
-        droplet_wait_time = float(entry[7])
+        droplet_wait_time = float(entry[8])
         # reading for possible further grids
         grids = grid_count
-        grid_x_offset = float(entry[8])
-        grid_y_offset = float(entry[9])
+        grid_x_offset = float(entry[9])
+        grid_y_offset = float(entry[10])
 
         # filling the syringe
         loading_container = int(entry[5])
@@ -68,9 +71,12 @@ def save_file(grid_count, self):
         total_fill = 0
         total_fill = rows * cols * -extrude
         file.write(f'G1 E{total_fill + 30} F250; Filling the syringe\n')
-        file.write(f'G0 Z{z_high} F3000\n')
+        file.write(f'G0 Z{z_high} F5000\n')
         file.write('G92 E0\n\n')
-        file.write('G1 E-20 F500 ; dispense first drop\nG04 S5; wait 5 seconds for drop to fall\n')
+        file.write(f'G0 X{x_container} Y{y_container_4} F5000\n')
+        file.write(f'G0 Z{container_z} F500\n')
+        file.write('G1 E-20 F500 ; dispense first drop\nG04 S0.5\n')
+        file.write(f'G0 Z{z_high} F5000\n')
         file.write(f'G0 X{x_abs} Y{y_abs} F5000\n')
         file.write('G92 E0\n\n')
         file.write(';Coordinates\n')
@@ -102,7 +108,7 @@ def save_file(grid_count, self):
         file.write(f'\nG0 Z{z_high} F1000 ; dispensing leftovers\n')
         file.write(f'G0 X{x_container} Y{y_container_emptying} F5000\n')
         file.write(f'G0 Z{container_z} F500\n')
-        file.write('G1 E-10 F500\n')
+        file.write('G1 E-10 F500\nG4 S1\n')
         file.write(f'G0 Z{z_high} F1000\n')
         # perform cleaning sequence
         auto_cleaning(y_container_cleaning, y_container_emptying, x_container, file, z_high, container_z)
@@ -137,13 +143,13 @@ def start_gcode(file, z_high):
 def auto_cleaning(clean_y, empty_y, container_x, file, z_high, z_low):
     # create sequence to take Toluol multiple times and dispense for cleaning
     file.write("\n\n: Create cleaning sequence\n")
-    for number in range(0, 3):
-        file.write(f'G0 Z{z_high} F2000\n')
+    for number in range(3):
+        file.write(f'G0 Z{z_high} F5000\n')
         file.write(f'G0 X{container_x} Y{clean_y} F5000\n')
         file.write(f'G0 Z{z_low} F2000\n')
         file.write('G1 E20 F500\n')
-        file.write(f'G0 Z{z_high} F2000\n')
+        file.write(f'G0 Z{z_high} F5000\n')
         file.write(f'G0 X{container_x} Y{empty_y} F5000\n')
         file.write(f'G0 Z{z_low} F2000\n')
         file.write('G1 E-20 F500\n')
-    file.write(f'G0 Z{z_high} F2000\n\n')
+    file.write(f'G0 Z{z_high} F5000\n\n')

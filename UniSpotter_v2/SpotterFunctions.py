@@ -1,8 +1,3 @@
-import gui_v2
-import grid
-import main_v2
-
-
 def read_defaults(file):
     config = open(f"{file}", "r")
     lines = config.readlines()

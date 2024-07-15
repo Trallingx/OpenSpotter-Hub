@@ -1,5 +1,6 @@
-from gui_v2 import *
-from SpotterFunctions import *
+from gui_v2 import DropletGui
+from SpotterFunctions import read_defaults
+from grid import create_labels
 
 if __name__ == "__main__":
     Gui = DropletGui()

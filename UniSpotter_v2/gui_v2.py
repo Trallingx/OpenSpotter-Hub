@@ -4,9 +4,10 @@ from tkinter import filedialog
 import tkinter as tk
 from tkinter.ttk import *
 from PIL import ImageTk, Image
+
+
 from grid import *
 from create_gcode import *
-
 
 class DropletGui(tk.Tk):
     def __init__(self):
@@ -52,7 +53,7 @@ class DropletGui(tk.Tk):
         remove_grid_button = Button(self.button_frame, text="remove grid", command=self.subtract_grid)
         remove_grid_button.grid(row=3, column=2)
 
-        check_input_button = Button(self.button_frame, text="check input", command="check_input")
+        check_input_button = Button(self.button_frame, text="check input", command=self.check_inputs)
         check_input_button.grid(row=5, column=0)
 
         create_gcode_button = Button(self.button_frame, text="create G-code", command=self.save_file)
@@ -132,6 +133,9 @@ class DropletGui(tk.Tk):
     def save_file(self):
         save_file(self.grid_count, self)
 
+    def check_inputs(self):
+        check_input(self)
+
 
 def open_secondary_window(text):
     secondary_window = tk.Toplevel()
@@ -144,3 +148,27 @@ def open_secondary_window(text):
         command=secondary_window.destroy
     )
     button_close.place(x=75, y=75)
+
+
+def check_input(gui):
+    global_entry = read_entries(gui.entry)
+    grid_1_entry = read_entries(gui.grid_1.entry)
+    x_offset = global_entry[2]
+    y_offset = global_entry[3]
+
+    # cols*x_step_size+x_grid_offset+general offset
+
+    grid_1_width = grid_1_entry[1]*grid_1_entry[2]+grid_1_entry[9]+x_offset
+
+    # rows*y_step_size+gri
+    grid_1_height = grid_1_entry[0] * grid_1_entry[3] + grid_1_entry[10] + y_offset
+
+    if gui.grid_count == 2:
+        grid_2_entry = read_entries(gui.grid_2.entry)
+        grid_2_width = grid_2_entry[1]*grid_2_entry[2]+grid_2_entry[9]+x_offset
+        grid_2_height = grid_2_entry[0] * grid_2_entry[3] + grid_2_entry[10] + y_offset
+        if grid_1_width >= 20 or grid_2_width >= 20 or grid_1_height >= 40 or grid_2_height >= 40:
+            open_secondary_window("grids exceed dimension of 20x40mm")
+
+    if grid_1_width >= 20 or grid_1_height >= 40:
+        open_secondary_window("grid exceed dimension of 20x40mm")
