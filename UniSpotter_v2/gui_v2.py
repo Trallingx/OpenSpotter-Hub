@@ -1,0 +1,174 @@
+import os
+from tkinter import *
+from tkinter import filedialog
+import tkinter as tk
+from tkinter.ttk import *
+from PIL import ImageTk, Image
+
+
+from grid import *
+from create_gcode import *
+
+class DropletGui(tk.Tk):
+    def __init__(self):
+        super(DropletGui, self).__init__()
+        self.global_input_frame = None
+        self.grid_1 = None
+        self.grid_2 = None
+
+        self.entry = []
+        self.grid_count = 0
+
+        # Setting up basic UI structure
+        self.title('SDU-Spotter')
+
+        self.main_frame = tk.Frame(self)
+        self.main_frame.grid()
+
+        # global setting (blue)
+        self.global_frame = tk.Frame(self.main_frame)
+        self.global_frame.grid(row=1, column=0)
+
+        self.global_input_frame = tk.Frame(self.global_frame)
+        self.global_input_frame.config(bg="lightblue", border=5)
+        self.global_input_frame.grid(row=1, column=0)
+
+        info_text = tk.Label(self.main_frame, text="Lorem ipsum dolor sit amet")
+        info_text.grid(row=0, columnspan=2)
+
+        # Adding Pictures, that define inputs
+        self.picture_frame = tk.Frame(self.main_frame)
+        self.picture_frame.grid(row=1, column=1)
+        self.adding_pictures()
+
+        # Adding buttons
+        self.button_frame = tk.Frame(self.main_frame)
+        self.button_frame.grid(row=2, columnspan=2)
+        self.create_buttons()
+
+    def create_buttons(self):
+        add_grid_button = Button(self.button_frame, text="create grid", command=self.instance_grid)
+        add_grid_button.grid(row=3, column=1)
+
+        remove_grid_button = Button(self.button_frame, text="remove grid", command=self.subtract_grid)
+        remove_grid_button.grid(row=3, column=2)
+
+        check_input_button = Button(self.button_frame, text="check input", command=self.check_inputs)
+        check_input_button.grid(row=5, column=0)
+
+        create_gcode_button = Button(self.button_frame, text="create G-code", command=self.save_file)
+        create_gcode_button.grid(row=5, column=1)
+
+        check_save_button = Button(self.button_frame, text="save defaults", command=self.check_saves)
+        check_save_button.grid(row=5, column=2)
+
+    def instance_grid(self):
+        match self.grid_count:
+            case 0:
+                self.grid_count += 1
+                self.grid_1 = Grid(self.main_frame, 4, 0, "config_grid_1.txt", "lightgreen")
+
+            case 1:
+                self.grid_count += 1
+                self.grid_2 = Grid(self.main_frame, 4, 1, "config_grid_2.txt", "orange")
+            case 2:
+                open_secondary_window("Cannot add more grids")
+
+    def check_grid_state(self, states):
+        match states:
+            case ['0']:
+                pass  # no grid
+            case ['1']:
+                self.instance_grid()
+            case ['2']:
+                self.instance_grid()
+                self.instance_grid()
+
+    def subtract_grid(self):
+        match self.grid_count:
+            case 0:
+                open_secondary_window("No more grids available")
+            case 1:
+                open_secondary_window("One grid required")
+                '''self.grid_count -= 1
+                self.grid_1.input_frame.destroy()'''
+            case 2:
+                self.grid_count -= 1
+                self.grid_2.input_frame.destroy()
+
+    def check_saves(self):
+        match self.grid_count:
+            case 0:
+                write_state(self.grid_count)
+                save_defaults(self.entry, "config_global.txt")
+            case 1:
+                write_state(self.grid_count)
+                save_defaults(self.entry, "config_global.txt")
+                save_defaults(self.grid_1.entry, "config_grid_1.txt")
+            case 2:
+                write_state(self.grid_count)
+                save_defaults(self.entry, "config_global.txt")
+                save_defaults(self.grid_1.entry, "config_grid_1.txt")
+                save_defaults(self.grid_2.entry, "config_grid_2.txt")
+
+    def adding_pictures(self):
+        picture_label = tk.Label(self.picture_frame, text="Build plate information")
+        picture_label.grid()
+
+        image = Image.open("buildplate.png")
+        resized_image = image.resize((359+20, 307+20))
+        photo = ImageTk.PhotoImage(resized_image)
+
+        label_picture = Label(self.picture_frame, image=photo)
+        label_picture.image = photo
+        label_picture.grid(padx=20, pady=5)
+
+        image = Image.open("spots.png")
+        photo = ImageTk.PhotoImage(image)
+
+        spots_picture = Label(self.global_frame, image=photo)
+        spots_picture.image = photo
+        spots_picture.grid(row=0, column=0)
+
+    def save_file(self):
+        save_file(self.grid_count, self)
+
+    def check_inputs(self):
+        check_input(self)
+
+
+def open_secondary_window(text):
+    secondary_window = tk.Toplevel()
+    secondary_window.title("Secondary Window")
+    secondary_window.config(width=400, height=200)
+    # Create a button to close (destroy) this window.
+    button_close = Button(
+        secondary_window,
+        text=text,
+        command=secondary_window.destroy
+    )
+    button_close.place(x=75, y=75)
+
+
+def check_input(gui):
+    global_entry = read_entries(gui.entry)
+    grid_1_entry = read_entries(gui.grid_1.entry)
+    x_offset = global_entry[2]
+    y_offset = global_entry[3]
+
+    # cols*x_step_size+x_grid_offset+general offset
+
+    grid_1_width = grid_1_entry[1]*grid_1_entry[2]+grid_1_entry[9]+x_offset
+
+    # rows*y_step_size+gri
+    grid_1_height = grid_1_entry[0] * grid_1_entry[3] + grid_1_entry[10] + y_offset
+
+    if gui.grid_count == 2:
+        grid_2_entry = read_entries(gui.grid_2.entry)
+        grid_2_width = grid_2_entry[1]*grid_2_entry[2]+grid_2_entry[9]+x_offset
+        grid_2_height = grid_2_entry[0] * grid_2_entry[3] + grid_2_entry[10] + y_offset
+        if grid_1_width >= 20 or grid_2_width >= 20 or grid_1_height >= 40 or grid_2_height >= 40:
+            open_secondary_window("grids exceed dimension of 20x40mm")
+
+    if grid_1_width >= 20 or grid_1_height >= 40:
+        open_secondary_window("grid exceed dimension of 20x40mm")

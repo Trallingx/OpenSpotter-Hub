@@ -29,7 +29,7 @@ class DropletGui(tk.Tk):
         picture_label = tk.Label(self.picture_frame, text="Build plate information")
         picture_label.grid()
 
-        image = Image.open("buildplate.png")
+        image = Image.open("../buildplate.png")
         resized_image = image.resize((359, 307))
         photo = ImageTk.PhotoImage(resized_image)
 
@@ -98,14 +98,14 @@ class DropletGui(tk.Tk):
         button_close.place(x=75, y=75)
 
     def save_defaults(self):
-        config = open("config.txt", "w")
+        config = open("../config.txt", "w")
         for i in range(16):
             save = self.entry[i].get()
             config.write(save+"\n")
         config.close()
 
     def read_defaults(self):
-        config = open("config.txt", "r")
+        config = open("../config.txt", "r")
         lines = config.readlines()
         for i in range(len(lines)):
             lines[i] = lines[i].replace("\n","")
