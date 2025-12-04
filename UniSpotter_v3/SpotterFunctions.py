@@ -3,23 +3,12 @@ import os
 
 
 def read_defaults(file):
-    """Read configuration from JSON file. Maintains backward compatibility."""
-    if file.endswith('.json'):
-        with open(file, 'r') as config_file:
-            data = json.load(config_file)
-            # Convert dict to list format for backward compatibility
-            if isinstance(data, dict):
-                return data
+    with open(file, 'r') as config_file:
+        data = json.load(config_file)
+        # Convert dict to list format for backward compatibility
+        if isinstance(data, dict):
             return data
-    else:
-        # Backward compatibility: read old text format
-        config = open(f"{file}", "r")
-        lines = config.readlines()
-        for i, line in enumerate(lines):
-            lines[i] = lines[i].replace("\n", "")
-        config.close()
-        return lines
-
+        return data
 
 def dict_to_list(data_dict, keys_order):
     """Convert dict config to list format (for backward compatibility with existing code)."""
@@ -34,31 +23,38 @@ def list_to_dict(data_list, keys):
         return {key: value for key, value in zip(keys, data_list)}
     return data_list
 
-
-def save_defaults(entry, file):
-    """Save configuration to JSON file."""
-    data = read_entries(entry)
-    if file.endswith('.json'):
-        # Determine which keys to use based on filename
-        if 'global' in file:
-            keys = ['x_coord_y_line', 'y_coord_x_line', 'first_spot_x_offset', 'first_spot_y_offset']
-        elif 'grid' in file:
-            keys = ['rows', 'columns', 'x_step_size', 'y_step_size', 'dispense_volume', 
-                   'loading_from', 'leftovers_into', 'z_adjust_down', 'droplet_forming_time',
-                   'grid_offset_x', 'grid_offset_y']
-        else:
-            keys = [f'param_{i}' for i in range(len(data))]
-        
-        data_dict = list_to_dict(data, keys)
-        with open(file, 'w') as config_file:
-            json.dump(data_dict, config_file, indent=2)
+def save_defaults(grid_entry,cleaning_entry, file):
+    """Save configuration to JSON file (key-value pairs)."""
+    data = read_entries(grid_entry)
+    if cleaning_entry:
+        cleaning_data = read_entries(cleaning_entry)
+        data = data + cleaning_data   # ← this merges both lists
+    
+    print(data)
+    # Decide which keys to use based on filename
+    if 'global' in file:
+        keys = ['X_cord_of_Y_Line', 'Y_cord_of_X_Line', 'tuning_offset_x', 'tuning_offset_y']
+    elif 'grid' in file:
+        keys = ['rows', 'cols', 'pitch_x', 'pitch_y', 'dispense_vol',
+                'loading_from', 'loading_to', 'Z-Adjust', 'droplet_forming_time',
+                'grid_offset_x', 'grid_offset_y','rows_cleaning', 'cols_cleaning',
+                'pitch_x_cleaning', 'pitch_y_cleaning', 'dispense_vol_cleaning']
     else:
-        # Backward compatibility: write old text format
-        config = open(f"{file}", "w")
-        for i in range(count_range(entry)):
-            save = str(data[i])
-            config.write(save + "\n")
-        config.close()
+        keys = [f'param_{i}' for i in range(len(data))]
+
+    # Convert list of tuples → dict {key: value}
+    data_dict = {}
+    for key, item in zip(keys, data):
+        # Each item is likely (label, value, unit)
+        if isinstance(item, (list, tuple)) and len(item) > 1:
+            data_dict[key] = float(item[1])
+        else:
+            data_dict[key] = float(item) if isinstance(item, (int, float, str)) else None
+
+    # Save to JSON
+    with open(file, 'w') as config_file:
+        json.dump(data_dict, config_file, indent=2)
+        print(f"✅ Saved defaults to {file}")
 
 
 def write_state(state, config_dir=None):
@@ -116,37 +112,9 @@ def count_range(entry):
         except IndexError:
             return count
 
-
 def read_entries(entry):
     count = count_range(entry)
     return [float(entry[i].get()) for i in range(count)]
-
-
-def save_defaults(entry, file):
-    """Save configuration to JSON file."""
-    data = read_entries(entry)
-    if file.endswith('.json'):
-        with open(file, 'w') as config_file:
-            json.dump(data, config_file, indent=2)
-    else:
-        # Backward compatibility: write old text format
-        config = open(f"{file}", "w")
-        for i in range(count_range(entry)):
-            save = str(data[i])
-            config.write(save + "\n")
-        config.close()
-
-
-def write_state(state, config_dir=None):
-    """Write grid state to JSON file."""
-    if config_dir is None:
-        filepath = "config_states.json"
-    else:
-        filepath = os.path.join(config_dir, "config_states.json")
-    
-    with open(filepath, 'w') as file:
-        json.dump({"grid_count": state}, file, indent=2)
-
 
 def select_loading_container(loading_container, y_container_4):
     match loading_container:

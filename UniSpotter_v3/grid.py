@@ -9,46 +9,66 @@ class Grid(object):
         self.config_dir = config_dir
         self.grid_entry = None
         self.input_frame = None
-        self.entry = []
+        self.grid_entry = []
+        self.cleaning_entry = []
         self.grid = None
         self.frame_row = frame_row
         self.frame_col = frame_col
         self.create_grid(config, background)
 
     def create_grid(self, config, background):
-        self.input_frame = tk.Frame(self.gui)
-        self.input_frame.config(bg=background, border=5)
-        self.input_frame.grid(row=self.frame_row, column=self.frame_col)
+        self.master_input_frame = tk.Frame(self.gui)
+        self.master_input_frame.config(bg=background, border=5)
+        self.master_input_frame.grid(row=self.frame_row, column=self.frame_col)
 
-        grid_defaults = read_defaults(config)
-        
-        # Convert dict to list format if necessary
-        if isinstance(grid_defaults, dict):
-            keys_order = ['rows', 'columns', 'x_step_size', 'y_step_size', 'dispense_volume', 
-                         'loading_from', 'leftovers_into', 'z_adjust_down', 'droplet_forming_time',
-                         'grid_offset_x', 'grid_offset_y']
-            grid_defaults = dict_to_list(grid_defaults, keys_order)
+        self.grid_input_frame = tk.Frame(self.master_input_frame)
+        self.grid_input_frame.config(bg=background, border=5)
+        self.grid_input_frame.grid(row= 0, column= 0)
+        Grid_label = tk.Label(self.grid_input_frame, text="Grid Configuration")
+        Grid_label.grid(row=0, column=0, columnspan=3, pady =5)
+
+        self.cleaning_input_frame = tk.Frame(self.master_input_frame)
+        self.cleaning_input_frame.config(bg=background, border=5)
+        self.cleaning_input_frame.grid(row=0, column=1)
+        Cleaning_label = tk.Label(self.cleaning_input_frame, text="Cleaning Configuration")
+        Cleaning_label.grid(row=0, column=0, columnspan=3, pady=5)
+
+        config_path = os.path.join(self.config_dir, config)
+        with open(config_path, "r") as f:
+            grid_defaults = json.load(f)
         
         list_of_inputs = [
-                          ("5: Set rows", grid_defaults[0], "int"),         # 4 old
-                          ("6: Set columns", grid_defaults[1], "int"),      # 5
-                          ("7: X step size", grid_defaults[2], "mm"),       # 6
-                          ("8: Y step size", grid_defaults[3], "mm"),       # 7
-                          ("Dispense Volume", grid_defaults[4], "uL"),      # 8
-                          ("Loading from", grid_defaults[5], "1 or 2 "),    # 9
-                          ("Leftovers into", grid_defaults[6], "3 or 4"),   # 10
-                          ("Z-Adjust down", grid_defaults[7], "mm"),        # 11
-                          ("droplet forming time", grid_defaults[8], "s"),  # 12
-                          ("9: grid offset x", grid_defaults[9], "mm"),     # 14
-                          ("10: grid offset y", grid_defaults[10], "mm"),   # 15
-                          ]
-        create_labels(list_of_inputs, self.entry, self.input_frame)
+                          ("5: Set rows", grid_defaults["rows"], "int"),         
+                          ("6: Set columns", grid_defaults["cols"], "int"),  
+                          ("7: X step size", grid_defaults["pitch_x"], "mm"),   
+                          ("8: Y step size", grid_defaults["pitch_y"], "mm"),   
+                          ("Dispense Volume", grid_defaults["dispense_vol"], "uL"),
+                          ("Loading from", grid_defaults["loading_from"], "1 or 2 "),
+                          ("Leftovers into", grid_defaults["loading_to"], "3 or 4"), 
+                          ("Z-Adjust down", grid_defaults["Z-Adjust"], "mm"),        
+                          ("droplet forming time", grid_defaults["droplet_forming_time"], "s"),
+                          ("9: grid offset x", grid_defaults["grid_offset_x"], "mm"),    
+                          ("10: grid offset y", grid_defaults["grid_offset_y"], "mm"),   
+                  ]
+        create_labels(list_of_inputs, self.grid_entry, self.grid_input_frame)
+
+        list_of_cleaning_inputs = [
+                            ("Set rows", grid_defaults["rows_cleaning"], "int"),        
+                            ("Set columns", grid_defaults["cols_cleaning"], "int"),     
+                            ("X step size", grid_defaults["pitch_x_cleaning"], "mm"),    
+                            ("Y step size", grid_defaults["pitch_y_cleaning"], "mm"),      
+                            ("Dispense Volume", grid_defaults["dispense_vol_cleaning"], "uL"),
+                            ("grid offset x", grid_defaults["grid_offset_x_cleaning"], "mm"),    
+                            ("grid offset y", grid_defaults["grid_offset_y_cleaning"], "mm"),  
+                            ("spots_before_cleaning", grid_defaults["spots_before_cleaning"], "int"), 
+                        ]
+        create_labels(list_of_cleaning_inputs, self.cleaning_entry, self.cleaning_input_frame)
 
 
 def create_labels(list_of_inputs, entry, input_frame):
     label = []
     labelx = []
-
+    
     for i in enumerate(list_of_inputs):
         label.append('label' + str(i))
         labelx.append('labelx' + str(i))
@@ -88,8 +108,8 @@ def create_labels(list_of_inputs, entry, input_frame):
             vcmd = input_frame.register(make_validator(150))
             entry[list_of_inputs.index(inputs)].config(validate='key', validatecommand=(vcmd, '%P'))
         # place widgets using grid()
-        label[list_of_inputs.index(inputs)].grid(row=list_of_inputs.index(inputs), column=0, sticky="WE", pady=2)
-        entry[list_of_inputs.index(inputs)].grid(row=list_of_inputs.index(inputs), column=1)
-        labelx[list_of_inputs.index(inputs)].grid(row=list_of_inputs.index(inputs), column=2, sticky="WE", pady=2)
+        label[list_of_inputs.index(inputs)].grid(row=list_of_inputs.index(inputs)+1, column=0, sticky="WE", pady=2)
+        entry[list_of_inputs.index(inputs)].grid(row=list_of_inputs.index(inputs)+1, column=1)
+        labelx[list_of_inputs.index(inputs)].grid(row=list_of_inputs.index(inputs)+1, column=2, sticky="WE", pady=2)
 
 

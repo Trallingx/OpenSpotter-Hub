@@ -1,6 +1,6 @@
-[
-  30.3,
-  86.0,
-  0.0,
-  0.0
-]
+{
+  "X_cord_of_Y_Line": 30.3,
+  "Y_cord_of_X_Line": 86.0,
+  "tuning_offset_x": 0.5,
+  "tuning_offset_y": 0.5
+}
