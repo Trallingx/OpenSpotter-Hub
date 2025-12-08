@@ -59,11 +59,13 @@ class CanvasDrawer:
                     vals = read_entries(grid_obj.grid_entry)
                     vals_cleaning = read_entries(grid_obj.cleaning_entry)
                     grids.append((idx, vals))
-                    cleaning_grids.append((idx, vals_cleaning))
+                    # Only include cleaning grid if enabled
+                    if hasattr(grid_obj, 'cleaning_enabled') and grid_obj.cleaning_enabled.get():
+                        cleaning_grids.append((idx, vals_cleaning))
                 except Exception:
                     pass
 
-        return {'global': global_vals, 'grids': grids}
+        return {'global': global_vals, 'grids': grids, 'cleaning_grids': cleaning_grids}
 
     def draw(self, snapshot):
         self.canvas.delete('all')
@@ -72,6 +74,7 @@ class CanvasDrawer:
 
         global_vals = snapshot.get('global')
         grids = snapshot.get('grids', [])
+        cleaning_grids = snapshot.get('cleaning_grids', [])
 
         points = []  # list of (x,y,grid_index, dispense_volume)
 
@@ -280,71 +283,55 @@ class CanvasDrawer:
             rad_px = min(max(rad_px, 1), 80)
             color = color_map.get(g, 'black')
             self.canvas.create_oval(px - rad_px, py - rad_px, px + rad_px, py + rad_px, fill=color, outline='')
-
-        # draw cleaning grid(s) if present
-        self.canvas.create_oval(anchor_px_base -5, anchor_py_base -5, anchor_px_base + 5, anchor_py_base + 5, fill= color, outline='')
-        try:
-            # support multiple per-grid cleaning configs (preferred)
-            cgs = getattr(self.gui, 'cleaning_grids', None)
-            #if cgs and isinstance(cgs, dict):
-            for _idx, cg in grids:
-                    try:
-                        crow = 10
-                        ccol = 10
-                        cxs = 1
-                        cys = 1
-                        csx = 15
-                        csy = 15
-                    except Exception:
-                        continue
-                    # draw points for cleaning grid (use purple color)
-                    print("Drawing cleaning grid:", crow, ccol, cxs, cys, csx, csy)
-                    for r in range(crow):
-                        for c in range(ccol):
-                            cx = csx + c * cxs
-                            cy = csy + r * cys
-                            cpx = anchor_px_base + (cx - anchor_x) * effective_scale
-                            cpy = anchor_py_base - (cy - anchor_y) * effective_scale 
-                            s = max(2, int(0.08 * effective_scale))
-                            self.canvas.create_rectangle(cpx - s, cpy - s, cpx + s, cpy + s, fill='purple', outline='black')
-                            print("painted cleaning point at:", cpx, cpy)
-                    # draw an outline around the cleaning grid
-                    cg_width = (ccol - 1) * cxs if ccol > 0 else 0.0
-                    cg_height = (crow - 1) * cys if crow > 0 else 0.0
-                    gx1 = anchor_px_base + (csx - anchor_x) * effective_scale
-                    gy1 = anchor_py_base - (csy - anchor_y) * effective_scale
-                    gx2 = anchor_px_base + (csx + cg_width - anchor_x) * effective_scale
-                    gy2 = anchor_py_base - (csy + cg_height - anchor_y) * effective_scale
-                    print("ANCHOR:", anchor_px_base, anchor_py_base, "CLEANING GRID BOX:", gx1, gy1, gx2, gy2, "--", csx, csy, cg_width, cg_height, effective_scale,"--", anchor_x, anchor_y)
-                    self.canvas.create_rectangle(min(gx1,gx2), min(gy1,gy2), max(gx1,gx2), max(gy1,gy2), outline='purple', width=2)
-                    
-            else:
-                # fallback to single cleaning_grid for backward compatibility
-                cg = getattr(self.gui, 'cleaning_grid', None)
-                if cg:
-                    crow = int(cg.get('rows', 0))
-                    ccol = int(cg.get('cols', 0))
-                    cxs = float(cg.get('x_step', 1.0))
-                    cys = float(cg.get('y_step', 1.0))
-                    csx = float(cg.get('start_x', 0.0))
-                    csy = float(cg.get('start_y', 0.0))
-                    for r in range(crow):
-                        for c in range(ccol):
-                            cx = csx + c * cxs
-                            cy = csy + r * cys
-                            cpx = anchor_px_base + (cx - anchor_x) * effective_scale
-                            cpy = anchor_py_base - (cy - anchor_y) * effective_scale
-                            s = max(2, int(0.08 * effective_scale))
-                            self.canvas.create_rectangle(cpx - s, cpy - s, cpx + s, cpy + s, fill='purple', outline='black')
-                    cg_width = (ccol - 1) * cxs if ccol > 0 else 0.0
-                    cg_height = (crow - 1) * cys if crow > 0 else 0.0
-                    gx1 = anchor_px_base + (csx - anchor_x) * effective_scale
-                    gy1 = anchor_py_base - (csy - anchor_y) * effective_scale
-                    gx2 = anchor_px_base + (csx + cg_width - anchor_x) * effective_scale
-                    gy2 = anchor_py_base - (csy + cg_height - anchor_y) * effective_scale
-                    self.canvas.create_rectangle(min(gx1,gx2), min(gy1,gy2), max(gx1,gx2), max(gy1,gy2), outline='purple', width=2)
-        except Exception:
-            pass
+        
+        # Draw cleaning grids with proper anchor-relative positioning
+        for grid_idx, cvals in cleaning_grids:
+            try:
+                # cleaning_entry order: rows, cols, x_step, y_step, dispense, x_offset, y_offset, spots_before_cleaning
+                crow = int(cvals[0]) if len(cvals) > 0 else 0
+                ccol = int(cvals[1]) if len(cvals) > 1 else 0
+                cxs = float(cvals[2]) if len(cvals) > 2 else 0.0  # x_step
+                cys = float(cvals[3]) if len(cvals) > 3 else 0.0  # y_step
+                # dispense at index 4 (not used for cleaning grid visualization currently)
+                csx = float(cvals[5]) if len(cvals) > 5 else 0.0   # x_offset
+                csy = float(cvals[6]) if len(cvals) > 6 else 0.0   # y_offset
+                
+                if crow == 0 or ccol == 0:
+                    continue
+                
+                # Get the grid's start position (anchor point + offsets)
+                # The cleaning grid should be positioned relative to the main grid
+                for grid_i, grid_vals in grids:
+                    if grid_i == grid_idx:
+                        # Grid info: rows, cols, x_step, y_step, dispense, loading, leftovers, z_adj, droplet_time, x_offset, y_offset
+                        grid_x_off = float(grid_vals[9]) if len(grid_vals) > 9 else 0.0
+                        grid_y_off = float(grid_vals[10]) if len(grid_vals) > 10 else 0.0
+                        
+                        # Cleaning grid absolute start position
+                        cstart_x = x_abs + first_x_off + grid_x_off + csx
+                        cstart_y = y_abs + first_y_off + grid_y_off + csy
+                        
+                        # Draw cleaning points
+                        for r in range(crow):
+                            for c in range(ccol):
+                                cx = cstart_x + c * cxs
+                                cy = cstart_y + r * cys
+                                cpx = anchor_px_base + (cx - anchor_x) * effective_scale
+                                cpy = anchor_py_base - (cy - anchor_y) * effective_scale 
+                                s = max(2, int(0.08 * effective_scale))
+                                self.canvas.create_rectangle(cpx - s, cpy - s, cpx + s, cpy + s, fill='purple', outline='black')
+                        
+                        # Draw outline around the cleaning grid
+                        cg_width = (ccol - 1) * cxs if ccol > 1 else 0.0
+                        cg_height = (crow - 1) * cys if crow > 1 else 0.0
+                        gx1 = anchor_px_base + (cstart_x - anchor_x) * effective_scale
+                        gy1 = anchor_py_base - (cstart_y - anchor_y) * effective_scale
+                        gx2 = anchor_px_base + (cstart_x + cg_width - anchor_x) * effective_scale
+                        gy2 = anchor_py_base - (cstart_y + cg_height - anchor_y) * effective_scale
+                        self.canvas.create_rectangle(min(gx1, gx2), min(gy1, gy2), max(gx1, gx2), max(gy1, gy2), outline='purple', width=2)
+                        break
+            except Exception as e:
+                pass
 
         # draw scale bars (choose mm length that fits)
         mm_per_px = 1.0 / effective_scale

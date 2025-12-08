@@ -23,12 +23,15 @@ def list_to_dict(data_list, keys):
         return {key: value for key, value in zip(keys, data_list)}
     return data_list
 
-def save_defaults(grid_entry,cleaning_entry, file):
+def save_defaults(grid_entry, cleaning_entry, washing_entry, file):
     """Save configuration to JSON file (key-value pairs)."""
     data = read_entries(grid_entry)
     if cleaning_entry:
         cleaning_data = read_entries(cleaning_entry)
         data = data + cleaning_data   # ← this merges both lists
+    if washing_entry:
+        washing_data = read_entries(washing_entry)
+        data = data + washing_data   # ← this merges washing data
     
     print(data)
     # Decide which keys to use based on filename
@@ -38,7 +41,10 @@ def save_defaults(grid_entry,cleaning_entry, file):
         keys = ['rows', 'cols', 'pitch_x', 'pitch_y', 'dispense_vol',
                 'loading_from', 'loading_to', 'Z-Adjust', 'droplet_forming_time',
                 'grid_offset_x', 'grid_offset_y','rows_cleaning', 'cols_cleaning',
-                'pitch_x_cleaning', 'pitch_y_cleaning', 'dispense_vol_cleaning']
+                'pitch_x_cleaning', 'pitch_y_cleaning', 'dispense_vol_cleaning',
+                'grid_offset_x_cleaning', 'grid_offset_y_cleaning', 'spots_before_cleaning',
+                'washing_depth', 'washing_speed', 'washing_upper_bound', 
+                'washing_lower_bound', 'washing_after_x_spots', 'washing_cycles']
     else:
         keys = [f'param_{i}' for i in range(len(data))]
 

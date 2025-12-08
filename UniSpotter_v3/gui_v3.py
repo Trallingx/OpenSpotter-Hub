@@ -202,7 +202,7 @@ class DropletGui(tk.Tk):
         write_state(self.grid_count, self.config_dir)
 
         # Always save global defaults
-        save_defaults(self.entry, 0, os.path.join(self.config_dir, "config_global.json"))
+        save_defaults(self.entry, 0, 0, os.path.join(self.config_dir, "config_global.json"))
 
         # Save each grid config that exists (supports grid_1..grid_N)
         for i in range(1, self.grid_count + 1):
@@ -211,7 +211,7 @@ class DropletGui(tk.Tk):
             print("tried saving", grid_attr, grid_obj)
             if grid_obj and hasattr(grid_obj, 'grid_entry'):
                 cfg_path = os.path.join(self.config_dir, f'config_grid_{i}.json')
-                save_defaults(grid_obj.grid_entry, grid_obj.cleaning_entry, cfg_path)
+                save_defaults(grid_obj.grid_entry, grid_obj.cleaning_entry, grid_obj.washing_entry, cfg_path)
                 print(f"✅ Saved grid {i} defaults to {cfg_path}")
 
     def adding_pictures(self):

@@ -17,5 +17,11 @@
   "dispense_vol_cleaning": 0.04,
   "grid_offset_x_cleaning": 0.0,
   "grid_offset_y_cleaning": 0.0,
-  "spots_before_cleaning": 10.0
+  "spots_before_cleaning": 10.0,
+  "washing_depth": 1.0,
+  "washing_speed": 5.0,
+  "washing_upper_bound": 10.0,
+  "washing_lower_bound": 0.0,
+  "washing_after_x_spots": 5.0,
+  "washing_cycles": 1.0
 }
