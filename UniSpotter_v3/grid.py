@@ -1,5 +1,7 @@
 from gui_v3 import *
 from SpotterFunctions import *
+from input_configs import get_grid_inputs, get_cleaning_inputs, get_washing_inputs
+import tkinter as tk
 import logging
 
 
@@ -52,39 +54,52 @@ class Grid(object):
             pass
 
     def create_grid(self, config, background):
-        self.master_input_frame = tk.Frame(self.gui)
-        self.master_input_frame.config(bg=background, border=5)
-        self.master_input_frame.grid(row=self.frame_row, column=self.frame_col)
+        # Create a scrollable frame within the tab
+        main_container = tk.Frame(self.gui, bg='#1e1e2e')
+        main_container.grid(row=0, column=0, sticky='nsew')
+        main_container.rowconfigure(0, weight=1)
+        main_container.columnconfigure(0, weight=1)
+        self.gui.rowconfigure(0, weight=1)
+        self.gui.columnconfigure(0, weight=1)
 
-        self.grid_input_frame = tk.Frame(self.master_input_frame)
-        self.grid_input_frame.config(bg=background, border=5)
-        self.grid_input_frame.grid(row= 0, column= 0)
-        Grid_label = tk.Label(self.grid_input_frame, text="Grid Configuration")
-        Grid_label.grid(row=0, column=0, columnspan=3, pady =5)
+        # Create canvas for scrolling
+        canvas = tk.Canvas(main_container, bg='#1e1e2e', highlightthickness=0)
+        scrollbar = tk.Scrollbar(main_container, orient='vertical', command=canvas.yview, bg='#2a2a3e', troughcolor='#1e1e2e')
+        scrollable_frame = tk.Frame(canvas, bg='#1e1e2e')
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor='nw')
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        canvas.grid(row=0, column=0, sticky='nsew')
+        scrollbar.grid(row=0, column=1, sticky='ns')
 
-        self.cleaning_input_frame = tk.Frame(self.master_input_frame)
-        self.cleaning_input_frame.config(bg=background, border=5)
-        self.cleaning_input_frame.grid(row=0, column=1)
-        Cleaning_label = tk.Label(self.cleaning_input_frame, text="Cleaning Configuration")
-        Cleaning_label.grid(row=0, column=0, columnspan=3, pady=5)
+        self.master_input_frame = scrollable_frame
+        self.master_input_frame.config(bg='#1e1e2e', border=0)
+
+        self.grid_input_frame = tk.Frame(self.master_input_frame, bg='#2a2a3e', relief='flat', bd=1, highlightbackground='#444455', highlightthickness=1)
+        self.grid_input_frame.pack(fill='x', padx=8, pady=8)
+        
+        Grid_label = tk.Label(self.grid_input_frame, text="Grid Configuration", bg='#2a2a3e', fg='#00d4ff', 
+                             font=("Segoe UI", 11, "bold"))
+        Grid_label.grid(row=0, column=0, columnspan=3, pady=8, padx=8)
+
+        self.cleaning_input_frame = tk.Frame(self.master_input_frame, bg='#2a2a3e', relief='flat', bd=1, highlightbackground='#444455', highlightthickness=1)
+        self.cleaning_input_frame.pack(fill='x', padx=8, pady=8)
+        
+        Cleaning_label = tk.Label(self.cleaning_input_frame, text="Cleaning Configuration", bg='#2a2a3e', fg='#00d4ff',
+                                 font=("Segoe UI", 11, "bold"))
+        Cleaning_label.grid(row=0, column=0, columnspan=3, pady=8, padx=8)
 
         config_path = os.path.join(self.config_dir, config)
         with open(config_path, "r") as f:
             grid_defaults = json.load(f)
         
-        list_of_inputs = [
-                          ("5: Set rows", grid_defaults["rows"], "int"),         
-                          ("6: Set columns", grid_defaults["cols"], "int"),  
-                          ("7: X step size", grid_defaults["pitch_x"], "mm"),   
-                          ("8: Y step size", grid_defaults["pitch_y"], "mm"),   
-                          ("Dispense Volume", grid_defaults["dispense_vol"], "uL"),
-                          ("Loading from", grid_defaults["loading_from"], "1 or 2 "),
-                          ("Leftovers into", grid_defaults["loading_to"], "3 or 4"), 
-                          ("Z-Adjust down", grid_defaults["Z-Adjust"], "mm"),        
-                          ("droplet forming time", grid_defaults["droplet_forming_time"], "s"),
-                          ("9: grid offset x", grid_defaults["grid_offset_x"], "mm"),    
-                          ("10: grid offset y", grid_defaults["grid_offset_y"], "mm"),   
-                  ]
+        list_of_inputs = get_grid_inputs(grid_defaults)
         create_labels(list_of_inputs, self.grid_entry, self.grid_input_frame, self.gui)
 
         # Add checkbox to enable/disable cleaning grid at row 1
@@ -93,21 +108,14 @@ class Grid(object):
             self.cleaning_input_frame,
             text="Enable Cleaning Grid",
             variable=self.cleaning_enabled,
-            command=self._toggle_cleaning_inputs
+            command=self._toggle_cleaning_inputs,
+            bg='#2a2a3e', fg='#00ff88', selectcolor='#1e1e2e', font=("Segoe UI", 10),
+            activebackground='#2a2a3e', activeforeground='#00ff88'
         )
-        cleaning_checkbox.grid(row=1, column=0, columnspan=3, pady=5, sticky="WE")
+        cleaning_checkbox.grid(row=1, column=0, columnspan=3, pady=8, padx=8, sticky="W")
         self.cleaning_widgets.append(cleaning_checkbox)
 
-        list_of_cleaning_inputs = [
-                            ("Set rows", grid_defaults["rows_cleaning"], "int"),        
-                            ("Set columns", grid_defaults["cols_cleaning"], "int"),     
-                            ("X step size", grid_defaults["pitch_x_cleaning"], "mm"),    
-                            ("Y step size", grid_defaults["pitch_y_cleaning"], "mm"),      
-                            ("Dispense Volume", grid_defaults["dispense_vol_cleaning"], "uL"),
-                            ("grid offset x", grid_defaults["grid_offset_x_cleaning"], "mm"),    
-                            ("grid offset y", grid_defaults["grid_offset_y_cleaning"], "mm"),  
-                            ("spots_before_cleaning", grid_defaults["spots_before_cleaning"], "int"), 
-                        ]
+        list_of_cleaning_inputs = get_cleaning_inputs(grid_defaults)
         create_labels(list_of_cleaning_inputs, self.cleaning_entry, self.cleaning_input_frame, self.gui,
                      start_row=2, widgets_list=self.cleaning_widgets)
         
@@ -117,19 +125,14 @@ class Grid(object):
             self.cleaning_input_frame,
             text="Enable Washing Needle",
             variable=self.washing_enabled,
-            command=self._toggle_washing_inputs
+            command=self._toggle_washing_inputs,
+            bg='#2a2a3e', fg='#00d4ff', selectcolor='#1e1e2e', font=("Segoe UI", 10),
+            activebackground='#2a2a3e', activeforeground='#00d4ff'
         )
-        washing_checkbox.grid(row=10, column=0, columnspan=3, pady=5, sticky="WE")
+        washing_checkbox.grid(row=10, column=0, columnspan=3, pady=8, padx=8, sticky="W")
         self.washing_widgets.append(washing_checkbox)
 
-        list_of_washing_inputs = [
-                            ("Washing Depth", grid_defaults.get("washing_depth", 1.0), "mm"),        
-                            ("Washing Speed", grid_defaults.get("washing_speed", 5.0), "mm/s"),     
-                            ("Washing Upper Bound", grid_defaults.get("washing_upper_bound", 10.0), "mm"),    
-                            ("Washing Lower Bound", grid_defaults.get("washing_lower_bound", 0.0), "mm"),      
-                            ("Washing After X Spots", grid_defaults.get("washing_after_x_spots", 5.0), "int"),
-                            ("Washing Cycles", grid_defaults.get("washing_cycles", 1.0), "int"),    
-                        ]
+        list_of_washing_inputs = get_washing_inputs(grid_defaults)
         create_labels(list_of_washing_inputs, self.washing_entry, self.cleaning_input_frame, self.gui,
                      start_row=11, widgets_list=self.washing_widgets)
         
@@ -150,10 +153,14 @@ def create_labels(list_of_inputs, entry, input_frame, gui=None, start_row=1, wid
         entry.append('entry' + str(i))
 
     for inputs in list_of_inputs:
-        # create widgets
-        label[list_of_inputs.index(inputs)] = tk.Label(input_frame, text=inputs[0])
-        entry[list_of_inputs.index(inputs)] = tk.Entry(input_frame, bd=5)
-        labelx[list_of_inputs.index(inputs)] = tk.Label(input_frame, text=inputs[2])
+        # create widgets with modern styling
+        label[list_of_inputs.index(inputs)] = tk.Label(input_frame, text=inputs[0], 
+                                                       bg='#2a2a3e', fg='#ffffff', font=("Segoe UI", 9))
+        entry[list_of_inputs.index(inputs)] = tk.Entry(input_frame, bd=0, relief='flat',
+                                                       bg='#3a3a4e', fg='#00d4ff', font=("Segoe UI", 9, "bold"),
+                                                       insertbackground='#00d4ff')
+        labelx[list_of_inputs.index(inputs)] = tk.Label(input_frame, text=inputs[2],
+                                                        bg='#2a2a3e', fg='#888899', font=("Segoe UI", 8))
         
         # Bind key release to trigger canvas updates
         if gui and hasattr(gui, 'canvas_drawer'):
@@ -198,14 +205,15 @@ def create_labels(list_of_inputs, entry, input_frame, gui=None, start_row=1, wid
         
         # place widgets using grid() with proper row offset
         row = start_row + list_of_inputs.index(inputs)
-        label[list_of_inputs.index(inputs)].grid(row=row, column=0, sticky="WE", pady=2)
-        entry[list_of_inputs.index(inputs)].grid(row=row, column=1)
-        labelx[list_of_inputs.index(inputs)].grid(row=row, column=2, sticky="WE", pady=2)
+        label[list_of_inputs.index(inputs)].grid(row=row, column=0, sticky="WE", pady=4, padx=8)
+        entry[list_of_inputs.index(inputs)].grid(row=row, column=1, sticky="WE", padx=4, pady=4)
+        labelx[list_of_inputs.index(inputs)].grid(row=row, column=2, sticky="W", pady=4, padx=4)
         
         # Track widgets for show/hide if widgets_list is provided
         if widgets_list is not None:
             widgets_list.append(label[list_of_inputs.index(inputs)])
             widgets_list.append(entry[list_of_inputs.index(inputs)])
+            widgets_list.append(labelx[list_of_inputs.index(inputs)])
             widgets_list.append(labelx[list_of_inputs.index(inputs)])
 
 

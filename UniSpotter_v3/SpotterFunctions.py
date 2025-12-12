@@ -44,7 +44,7 @@ def save_defaults(grid_entry, cleaning_entry, washing_entry, file):
                 'pitch_x_cleaning', 'pitch_y_cleaning', 'dispense_vol_cleaning',
                 'grid_offset_x_cleaning', 'grid_offset_y_cleaning', 'spots_before_cleaning',
                 'washing_depth', 'washing_speed', 'washing_upper_bound', 
-                'washing_lower_bound', 'washing_after_x_spots', 'washing_cycles']
+                'washing_lower_bound','washing_column_offset', 'washing_after_x_spots', 'washing_cycles']
     else:
         keys = [f'param_{i}' for i in range(len(data))]
 
@@ -121,6 +121,29 @@ def count_range(entry):
 def read_entries(entry):
     count = count_range(entry)
     return [float(entry[i].get()) for i in range(count)]
+
+def read_entries_as_dict(entry, list_of_inputs):
+    """
+    Convert entry list to dictionary using labels from list_of_inputs.
+    
+    Args:
+        entry: List of tkinter Entry widgets
+        list_of_inputs: List of tuples (label, default_value, unit)
+    
+    Returns:
+        Dictionary mapping simplified labels to float values
+    """
+    values = read_entries(entry)
+    result = {}
+    
+    for i, (label, _, _) in enumerate(list_of_inputs):
+        if i < len(values):
+            # Simplify label: remove numbers, colons, convert to lowercase, replace spaces with underscores
+            simplified_label = label.lower().strip().rstrip(':').split(':')[-1].strip()
+            simplified_label = simplified_label.replace(' ', '_')
+            result[simplified_label] = values[i]
+    
+    return result
 
 def select_loading_container(loading_container, y_container_4):
     match loading_container:
