@@ -6,16 +6,18 @@ Each configuration is a list of tuples: (label, default_value, unit)
 def get_global_inputs(global_defaults):
     """Global coordinate inputs"""
     return [
-        ("1: X cord. of the Y-line", global_defaults["X_cord_of_Y_Line"], "mm"),  # 0
-        ("2: Y cord. of the X-line", global_defaults["Y_cord_of_X_Line"], "mm"),  # 1
-        ("3: First Spot X-offset",   global_defaults["tuning_offset_x"], "mm"),   # 2
-        ("4: First Spot Y-offset",   global_defaults["tuning_offset_y"], "mm"),   # 3
-        ("5: Acceptance Square X",   global_defaults["acceptance_square_x"], "mm"), # 4
-        ("6: Acceptance Square Y",   global_defaults["acceptance_square_y"], "mm"), # 
-        ("7: Base Square X",         global_defaults["base_square_x"], "mm"), # 7
-        ("8: Base Square Y",         global_defaults["base_square_y"], "mm"), # 8
-        ("9: Grey Square X",         global_defaults["grey_square_x"], "mm"), # 9
-        ("10: Grey Square Y",        global_defaults["grey_square_y"], "mm"), # 10
+        ("1: X cord. of the Y-line",   global_defaults["X_cord_of_Y_Line"], "mm"),  # 0
+        ("2: Y cord. of the X-line",   global_defaults["Y_cord_of_X_Line"], "mm"),  # 1
+        ("3: First Spot X-offset",     global_defaults["tuning_offset_x"], "mm"),   # 2
+        ("4: First Spot Y-offset",     global_defaults["tuning_offset_y"], "mm"),   # 3
+        ("5: Acceptance Square X",     global_defaults["acceptance_square_x"], "mm"), # 4
+        ("6: Acceptance Square Y",     global_defaults["acceptance_square_y"], "mm"), # 
+        ("7: Base Square X",           global_defaults["base_square_x"], "mm"), # 7
+        ("8: Base Square Y",           global_defaults["base_square_y"], "mm"), # 8
+        ("9: Grey Square X",           global_defaults["grey_square_x"], "mm"), # 9
+        ("10: Grey Square Y",          global_defaults["grey_square_y"], "mm"), # 10
+        ("11: Probe Homing Position X",global_defaults["probe_x"], "mm"),
+        ("12: Probe Homing Position Y",global_defaults["probe_y"], "mm")
     ]
 
 

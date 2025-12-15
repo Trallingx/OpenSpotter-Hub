@@ -8,5 +8,7 @@
   "base_square_x": 20,
   "base_square_y": 40,
   "grey_square_x": 40,
-  "grey_square_y": 70
+  "grey_square_y": 70,
+  "probe_x":75,
+  "probe_y":70
 }

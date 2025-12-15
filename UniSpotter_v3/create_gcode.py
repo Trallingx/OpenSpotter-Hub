@@ -15,6 +15,8 @@ GLOBAL_INPUT_LABELS = [
     ("3: First Spot X-offset", None, "mm"),
     ("4: First Spot Y-offset", None, "mm"),
     ("5: Container Z height", None, "mm"),
+    ("probe_x",None, "mm"),
+    ("probe_y",None, "mm")
 ]
 
 GRID_INPUT_LABELS = [
@@ -71,7 +73,7 @@ def generate_anchor_calibration(self):
     
     x_abs = float(entry_dict['x_cord._of_the_y-line'])
     y_abs = float(entry_dict['y_cord._of_the_x-line'])
-    
+
     z_high = 40
     z_low = 4
     
@@ -108,6 +110,10 @@ def save_file(grid_count, self):
     y_offset = y_abs + float(entry_dict['first_spot_y-offset'])
     y_offset_abs = y_offset
     container_z = float(entry_dict['container_z_height'])
+    probe_x = float(entry_dict['probe_x'])
+    probe_y = float(entry_dict['probe_y'])
+
+
     z_high = 40
     # code generation
     # creating the coordinates from the intersection between xline and y line which is x and y
@@ -115,7 +121,7 @@ def save_file(grid_count, self):
 
     # writing into the file
     # start g-code
-    file = start_gcode(file, z_high)
+    file = start_gcode(file, z_high, probe_x, probe_y)
 
     # movement loop
     washing_spot_counter = [0]  # Use list to track across grid iterations
@@ -200,16 +206,17 @@ def save_file(grid_count, self):
         return
 
 
-def start_gcode(file, z_high):
+def start_gcode(file, z_high, probe_x = 75, probe_y = 70):
     file.write(";TYPE:Custom\nM862.3 P \"MK3S\" ; printer model check")
     file.write('\nM406 ; Filament sensor off\nG90 ;use absolute coordinates\nG21 ;unit mm\n')
     file.write('\n;Homing sequence\n')
     file.write(f'G0 Z{z_high} F3000 ;Lift Z to prevent scratching and allow leveling\n')
-    file.write('G28 X Y ;Home X and Y\n')
-    file.write('G28 Z ;Home Z\n')
-    file.write('G92 X100 Y100 Z4 E0 ;Set position to origin (allows negative Z movement)\n')
+    file.write('G28 X0 Y0 ;Home X and Y\n')
+    file.write(f'G0 X{probe_x} Y{probe_y}\n')
+    file.write('G28 Z0 ;Home Z\n')
+    #file.write('G92 X100 Y100 Z4 E0 ;Set position to origin (allows negative Z movement)\n')
     file.write(f'G0 Z{z_high} F3000\n')
-    file.write('G1 E10 F500 ;Prime extruder\nG92 E0\n\n')
+    #file.write('G1 E10 F500 ;Prime extruder\nG92 E0\n\n')
 
     return file
 

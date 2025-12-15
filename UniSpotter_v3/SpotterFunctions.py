@@ -36,7 +36,8 @@ def save_defaults(grid_entry, cleaning_entry, washing_entry, file):
     print(data)
     # Decide which keys to use based on filename
     if 'global' in file:
-        keys = ['X_cord_of_Y_Line', 'Y_cord_of_X_Line', 'tuning_offset_x', 'tuning_offset_y']
+        keys = ['X_cord_of_Y_Line', 'Y_cord_of_X_Line', 'tuning_offset_x', 'tuning_offset_y','acceptance_square_x','acceptance_square_y','base_square_x',
+                'base_square_y','grey_square_x','grey_square_y','probe_x', 'probe_y']
     elif 'grid' in file:
         keys = ['rows', 'cols', 'pitch_x', 'pitch_y', 'dispense_vol',
                 'loading_from', 'loading_to', 'Z-Adjust', 'droplet_forming_time',
