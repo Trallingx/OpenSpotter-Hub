@@ -65,12 +65,13 @@ def write_state(state, config_dir=None):
 
 
 def create_coordinates(rows, cols,
-                       x_offset, grid_x_offset, x_shift, x_offset_abs,
+                       x_offset, grid_x_offset, x_shift,
                        y_offset, grid_y_offset, y_shift,
                        z):
     index = 0
     coordinates_grid = ['0' for _ in range(cols * rows)]
-    x_offset = x_offset + grid_x_offset
+    x_offset_abs = x_offset + grid_x_offset
+    x_offset = x_offset_abs
     y_offset = y_offset + grid_y_offset
     # {y_offset}
     for j in range(rows):
@@ -80,6 +81,7 @@ def create_coordinates(rows, cols,
             index = index + 1
         x_offset = x_offset_abs
         y_offset = y_offset + y_shift
+    #print(coordinates_grid)
     return coordinates_grid
 
 

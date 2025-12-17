@@ -92,15 +92,15 @@ class CanvasDrawer:
         if not global_vals or len(global_vals) < 4:
             # nothing to draw
             return
-        print("try to start")
+        #print("try to start")
         global_vals_dict = read_entries_as_dict(self.gui.entry, GLOBAL_INPUT_LABELS)
-        print(global_vals_dict)
+        #print(global_vals_dict)
         x_abs = float(global_vals_dict['x_cord_of_y_line'])
-        print("one read successss")
+        #print("one read successss")
         y_abs = float(global_vals_dict['y_cord_of_x_line'])
         first_x_off = float(global_vals_dict['tuning_offset_x'])
         first_y_off = float(global_vals_dict['tuning_offset_y'])
-        print("reading success")
+        #print("reading success")
         # inner acceptance rectangle scaled proportionally
         # rectangle parameters (mm) - 200x133.3 mm (maintains 600x400 px aspect ratio from original 300x400)
         inner_w =   float(global_vals_dict['acceptance_square_x'])
