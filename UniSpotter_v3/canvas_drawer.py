@@ -1,8 +1,9 @@
 import math
 import tkinter as tk
 from tkinter import messagebox
-from SpotterFunctions import read_entries, dict_to_list
-
+from SpotterFunctions import read_entries, dict_to_list ,read_entries_as_dict
+from input_configs import get_keys
+from input_configs import GLOBAL_INPUT_LABELS, GRID_INPUT_LABELS, CLEANING_INPUT_LABELS, WASHING_INPUT_LABELS
 
 class CanvasDrawer:
     def __init__(self, gui, poll_interval=500):
@@ -48,7 +49,6 @@ class CanvasDrawer:
         global_vals = None
         try:
             global_vals = read_entries(self.gui.entry)
-            #print("Global values:", global_vals)
         except Exception:
             global_vals = None
 
@@ -85,26 +85,30 @@ class CanvasDrawer:
         cleaning_grids = snapshot.get('cleaning_grids', [])
         washing_data = snapshot.get('washing_data', [])
 
+        
         points = []  # list of (x,y,grid_index, dispense_volume)
 
         # Global offsets: expect [x_abs, y_abs, x_offset, y_offset]
         if not global_vals or len(global_vals) < 4:
             # nothing to draw
             return
-
-        x_abs = float(global_vals[0])
-        y_abs = float(global_vals[1])
-        first_x_off = float(global_vals[2])
-        first_y_off = float(global_vals[3])
-
+        print("try to start")
+        global_vals_dict = read_entries_as_dict(self.gui.entry, GLOBAL_INPUT_LABELS)
+        print(global_vals_dict)
+        x_abs = float(global_vals_dict['x_cord_of_y_line'])
+        print("one read successss")
+        y_abs = float(global_vals_dict['y_cord_of_x_line'])
+        first_x_off = float(global_vals_dict['tuning_offset_x'])
+        first_y_off = float(global_vals_dict['tuning_offset_y'])
+        print("reading success")
         # inner acceptance rectangle scaled proportionally
         # rectangle parameters (mm) - 200x133.3 mm (maintains 600x400 px aspect ratio from original 300x400)
-        inner_w = global_vals[4]
-        inner_h = global_vals[5]
-        rect_w = global_vals[6]
-        rect_h = global_vals[7]
-        grey_w = global_vals[8] 
-        grey_h = global_vals[9]
+        inner_w =   float(global_vals_dict['acceptance_square_x'])
+        inner_h =   float(global_vals_dict['acceptance_square_y'])
+        rect_w =    float(global_vals_dict['base_square_x'])
+        rect_h =    float(global_vals_dict['base_square_y'])
+        grey_w =    float(global_vals_dict['grey_square_x']) 
+        grey_h =    float(global_vals_dict['grey_square_y'])
 
         # We'll collect per-grid extents to decide coloring
         # store (grid_idx, start_x_abs, start_y_abs, grid_width_mm, grid_height_mm)

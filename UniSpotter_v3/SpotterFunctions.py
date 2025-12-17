@@ -1,6 +1,6 @@
 import json
 import os
-
+from input_configs import get_keys
 
 def read_defaults(file):
     with open(file, 'r') as config_file:
@@ -35,19 +35,8 @@ def save_defaults(grid_entry, cleaning_entry, washing_entry, file):
     
     print(data)
     # Decide which keys to use based on filename
-    if 'global' in file:
-        keys = ['X_cord_of_Y_Line', 'Y_cord_of_X_Line', 'tuning_offset_x', 'tuning_offset_y','acceptance_square_x','acceptance_square_y','base_square_x',
-                'base_square_y','grey_square_x','grey_square_y','probe_x', 'probe_y']
-    elif 'grid' in file:
-        keys = ['rows', 'cols', 'pitch_x', 'pitch_y', 'dispense_vol',
-                'loading_from', 'loading_to', 'Z-Adjust', 'droplet_forming_time',
-                'grid_offset_x', 'grid_offset_y','rows_cleaning', 'cols_cleaning',
-                'pitch_x_cleaning', 'pitch_y_cleaning', 'dispense_vol_cleaning',
-                'grid_offset_x_cleaning', 'grid_offset_y_cleaning', 'spots_before_cleaning',
-                'washing_depth', 'washing_speed', 'washing_upper_bound', 
-                'washing_lower_bound','washing_column_offset', 'washing_after_x_spots', 'washing_cycles']
-    else:
-        keys = [f'param_{i}' for i in range(len(data))]
+    keys = get_keys(file,data)
+
 
     # Convert list of tuples → dict {key: value}
     data_dict = {}

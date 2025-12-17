@@ -6,54 +6,7 @@ from SpotterFunctions import select_loading_container
 from SpotterFunctions import select_cleaning_containers
 from input_configs import get_global_inputs, get_grid_inputs, get_cleaning_inputs
 import input_configs as ic  
-
-
-# Define simplified input label lists (without defaults, just labels)
-GLOBAL_INPUT_LABELS = [
-    ("1: X cord. of the Y-line", None, "mm"),
-    ("2: Y cord. of the X-line", None, "mm"),
-    ("3: First Spot X-offset", None, "mm"),
-    ("4: First Spot Y-offset", None, "mm"),
-    ("5: Container Z height", None, "mm"),
-    ("probe_x",None, "mm"),
-    ("probe_y",None, "mm")
-]
-
-GRID_INPUT_LABELS = [
-    ("5: Set rows", None, "int"),
-    ("6: Set columns", None, "int"),
-    ("7: X step size", None, "mm"),
-    ("8: Y step size", None, "mm"),
-    ("Dispense Volume", None, "uL"),
-    ("Loading from", None, "1 or 2 "),
-    ("Leftovers into", None, "3 or 4"),
-    ("Z-Adjust down", None, "mm"),
-    ("droplet forming time", None, "s"),
-    ("9: grid offset x", None, "mm"),
-    ("10: grid offset y", None, "mm"),
-]
-
-CLEANING_INPUT_LABELS = [
-    ("Set rows", None, "int"),
-    ("Set columns", None, "int"),
-    ("X step size", None, "mm"),
-    ("Y step size", None, "mm"),
-    ("Dispense Volume", None, "uL"),
-    ("grid offset x", None, "mm"),
-    ("grid offset y", None, "mm"),
-    ("spots_before_cleaning", None, "int"),
-]
-
-WASHING_INPUT_LABELS = [
-    ("Washing Depth", None, "mm"),
-    ("Washing Speed", None, "mm/s"),
-    ("Washing Upper Bound", None, "mm"),
-    ("Washing Lower Bound", None, "mm"),
-    ("Washing Column Offset", None, "mm"),
-    ("Washing After X Spots", None, "int"),
-    ("Washing Cycles", None, "int"),
-]
-
+from input_configs import GLOBAL_INPUT_LABELS, GRID_INPUT_LABELS, CLEANING_INPUT_LABELS, WASHING_INPUT_LABELS
 
 def generate_anchor_calibration(self):
     """
@@ -101,13 +54,13 @@ def save_file(grid_count, self):
     entry_dict = read_entries_as_dict(self.entry, GLOBAL_INPUT_LABELS)
     
     loop_counter = 0
-    x_abs = float(entry_dict['x_cord._of_the_y-line'])
+    x_abs = float(entry_dict['x_cord_of_y_line'])
     x_loading_calibration = 32.25
-    y_abs = float(entry_dict['y_cord._of_the_x-line'])
+    y_abs = float(entry_dict['y_cord_of_x_line'])
     y_loading_calibration = 86
-    x_offset = x_abs + float(entry_dict['first_spot_x-offset'])
+    x_offset = x_abs + float(entry_dict['tuning_offset_x'])
     x_offset_abs = x_offset
-    y_offset = y_abs + float(entry_dict['first_spot_y-offset'])
+    y_offset = y_abs + float(entry_dict['tuning_offset_y'])
     y_offset_abs = y_offset
     container_z = float(entry_dict['container_z_height'])
     probe_x = float(entry_dict['probe_x'])
@@ -208,11 +161,11 @@ def save_file(grid_count, self):
 
 def start_gcode(file, z_high, probe_x = 75, probe_y = 70):
     file.write(";TYPE:Custom\nM862.3 P \"MK3S\" ; printer model check")
-    file.write('\nM406 ; Filament sensor off\nG90 ;use absolute coordinates\nG21 ;unit mm\n')
+    file.write('\nM406 ; Filament sensor off\nM110 N0\nG90 ;use absolute coordinates\nG21 ;unit mm\n')
     file.write('\n;Homing sequence\n')
     file.write(f'G0 Z{z_high} F3000 ;Lift Z to prevent scratching and allow leveling\n')
     file.write('G28 X0 Y0 ;Home X and Y\n')
-    file.write(f'G0 X{probe_x} Y{probe_y}\n')
+    file.write(f'G0 X{probe_x} Y{probe_y} ; Go with probe above vacuum chuck\n')
     file.write('G28 Z0 ;Home Z\n')
     #file.write('G92 X100 Y100 Z4 E0 ;Set position to origin (allows negative Z movement)\n')
     file.write(f'G0 Z{z_high} F3000\n')

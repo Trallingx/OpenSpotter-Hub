@@ -1,14 +1,15 @@
 {
-  "X_cord_of_Y_Line": 30.3,
-  "Y_cord_of_X_Line": 86.0,
+  "x_cord_of_y_line": 30.3,
+  "y_cord_of_x_line": 86.0,
   "tuning_offset_x": 0.5,
   "tuning_offset_y": 0.5,
-  "acceptance_square_x": 19,
-  "acceptance_square_y": 39,
-  "base_square_x": 20,
-  "base_square_y": 40,
-  "grey_square_x": 40,
-  "grey_square_y": 70,
-  "probe_x":75,
-  "probe_y":70
+  "container_z_height": 40.0,
+  "acceptance_square_x": 19.0,
+  "acceptance_square_y": 39.0,
+  "base_square_x": 20.0,
+  "base_square_y": 40.0,
+  "grey_square_x": 40.0,
+  "grey_square_y": 70.0,
+  "probe_x": 75.0,
+  "probe_y": 70.0
 }
