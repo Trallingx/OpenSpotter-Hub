@@ -33,6 +33,12 @@ GLOBAL_FIELDS: List[Field] = [
     Field("grey_square_y", "Grey Square Y", "mm"),
     Field("probe_x", "Probe Homing X", "mm"),
     Field("probe_y", "Probe Homing Y", "mm"),
+    Field("z_zero_pos", "Probing Z", "mm"),
+    Field("z_movement_pos", "Movement Z", "mm"),
+    Field("movement_speed", "Movement Speed", "mm"),
+    Field("decent_speed", "Decent Speed", "mm"),
+    Field("adcent_speed", "Adcent Speed", "mm"),
+
 ]
 
 

@@ -21,21 +21,26 @@ def generate_anchor_calibration(self):
     # Get global inputs
     entry_dict = read_entries_as_dict(self.entry, GLOBAL_FIELDS)
     
-    x_abs = float(entry_dict['x_cord._of_the_y-line'])
-    y_abs = float(entry_dict['y_cord._of_the_x-line'])
+    x_abs = float(entry_dict['x_cord_of_y_line'])
+    y_abs = float(entry_dict['y_cord_of_x_line'])
 
-    z_high = 40
-    z_low = 4
+    z_high = float(entry_dict['z_movement_pos'])
+    z_low = float(entry_dict['z_zero_pos'])
+
+    speed = float(entry_dict['movement_speed'])
+    decent_speed = float(entry_dict['decent_speed'])
+    adcent_speed = float(entry_dict['adcent_speed'])
+    
     
     # Write start G-code
     start_gcode(file, z_high)
     
     # Write anchor calibration sequence
     file.write('; Anchor Calibration Sequence\n')
-    file.write(f'G0 X{x_abs} Y{y_abs} F5000 ; Move to anchor position\n')
-    file.write(f'G0 Z{z_low} F500 ; Lower needle to calibration height\n')
+    file.write(f'G0 X{x_abs} Y{y_abs} F{speed} ; Move to anchor position\n')
+    file.write(f'G0 Z{z_low} F{decent_speed} ; Lower needle to calibration height\n')
     file.write('G4 S1 ; Wait 1 second at calibration position\n')
-    file.write(f'G0 Z{z_high} F5000 ; Raise needle to safe height\n')
+    file.write(f'G0 Z{z_high} F{adcent_speed} ; Raise needle to safe height\n')
     file.write('; Calibration complete\n')
     
     # End

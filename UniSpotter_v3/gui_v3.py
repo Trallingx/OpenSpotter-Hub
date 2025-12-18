@@ -131,7 +131,7 @@ class DropletGui(tk.Tk):
                               fg=COLORS['text_secondary'], bg=COLORS['bg_secondary'])
         scale_label.pack(side='left', padx=(0, 5), pady=2)
         
-        self.px_scale = tk.Scale(canvas_controls_frame, from_=0, to=200, orient='horizontal', 
+        self.px_scale = tk.Scale(canvas_controls_frame, from_=0, to=20, orient='horizontal', 
                                 command=_on_px_per_mm, bg=COLORS['bg_tertiary'], 
                                 fg=COLORS['accent'], troughcolor=COLORS['bg_secondary'],
                                 highlightthickness=0, bd=0)
@@ -398,18 +398,25 @@ class DropletGui(tk.Tk):
         self.grid_count -= 1
 
     def check_saves(self):
-        # Write current grid count to state file
+        # Save grid count
         write_state(self.grid_count, self.config_dir)
 
-        # Always save global defaults
-        save_defaults(self.entry, 0, 0, os.path.join(self.config_dir, "config_global.json"))
+        # Convert global entries to dict
+        global_dict = entries_to_dict(self.entry, GLOBAL_FIELDS)
+        save_defaults(os.path.join(self.config_dir, "config_global.json"), global_dict)
 
-        # Save each grid config that exists using the grid_tab_dict
-        for grid_idx in sorted(self.grid_tab_dict.keys()):
-            grid_obj = self.grid_tab_dict[grid_idx]
-            cfg_path = os.path.join(self.config_dir, f'config_grid_{grid_idx + 1}.json')
-            save_defaults(grid_obj.grid_entry, grid_obj.cleaning_entry, grid_obj.washing_entry, cfg_path)
+        # Save each grid using dicts for grid, cleaning, washing
+        for grid_idx, grid_obj in self.grid_tab_dict.items():
+            cfg_path = os.path.join(self.config_dir, f"config_grid_{grid_idx + 1}.json")
+
+            grid_dict = entries_to_dict(grid_obj.grid_entry, GRID_FIELDS)
+            cleaning_dict = entries_to_dict(grid_obj.cleaning_entry, CLEANING_FIELDS)
+            washing_dict = entries_to_dict(grid_obj.washing_entry, WASHING_FIELDS)
+
+            save_defaults(cfg_path, grid_dict, cleaning_dict, washing_dict)
             print(f"✅ Saved grid {grid_idx + 1} defaults to {cfg_path}")
+
+
 
     def adding_pictures(self):
         image = Image.open(os.path.join(self.config_dir, "buildplate.png"))
@@ -431,9 +438,6 @@ class DropletGui(tk.Tk):
 
     def save_file(self):
         save_file(self.grid_count, self)
-
-    def check_inputs(self):
-        check_input(self)
 
     def _toggle_calibration_button(self):
         """Show/hide and enable/disable the calibration button based on checkbox state."""
@@ -477,6 +481,77 @@ class DropletGui(tk.Tk):
             if isinstance(widget, tk.Entry):
                 widget.config(state=state)
 
+    def check_inputs(self, gui):
+        global_entry = read_entries(gui.entry)
+        # Read global offsets (for positioning, not sizing)
+        first_x_off = float(global_entry[2]) if len(global_entry) > 2 else 0.0
+        first_y_off = float(global_entry[3]) if len(global_entry) > 3 else 0.0
+        # absolute build plate origin (for rectangle positioning)
+        x_abs = float(global_entry[0]) if len(global_entry) > 0 else 0.0
+        y_abs = float(global_entry[1]) if len(global_entry) > 1 else 0.0
+
+        # rectangle params (must match canvas_drawer)
+        rect_w = 20.0
+        rect_h = 40.0
+        # inner acceptance rectangle dimensions (mm)
+        inner_w = 19.0
+        inner_h = 39.0
+        # require minimum inset from left and bottom (mm)
+        inset_lb = 0.5
+
+        exceeded = []
+
+        # Helper to check a grid safely
+        def check_grid_obj(grid_obj, grid_idx):
+            try:
+                vals = read_entries(grid_obj.entry)
+            except Exception:
+                return
+            # vals expected: rows, cols, x_step, y_step, ..., grid_offset_x, grid_offset_y
+            try:
+                rows = int(vals[0])
+                cols = int(vals[1])
+                x_step = float(vals[2])
+                y_step = float(vals[3])
+                grid_x_off = float(vals[9]) if len(vals) > 9 else 0.0
+                grid_y_off = float(vals[10]) if len(vals) > 10 else 0.0
+            except Exception:
+                return
+
+            # Compute grid physical span (independent per-grid): (n-1)*step between first and last
+            grid_width = (cols - 1) * x_step if cols > 0 else 0.0
+            grid_height = (rows - 1) * y_step if rows > 0 else 0.0
+
+            # compute absolute rectangle inner origin (visual center, logical inset applied below)
+            rect_x = x_abs + first_x_off
+            rect_y = y_abs + first_y_off
+            inner_vis_x = rect_x + (rect_w - inner_w) / 2.0
+            inner_vis_y = rect_y + (rect_h - inner_h) / 2.0
+            inner_origin_x = inner_vis_x + inset_lb
+            inner_origin_y = inner_vis_y + inset_lb
+
+            # grid absolute start/end positions
+            start_abs_x = rect_x + grid_x_off
+            start_abs_y = rect_y + grid_y_off
+            end_abs_x = start_abs_x + grid_width
+            end_abs_y = start_abs_y + grid_height
+
+            # if grid starts before inner origin or ends beyond inner origin + inner size -> exceeded
+            if start_abs_x < inner_origin_x or start_abs_y < inner_origin_y or end_abs_x > (inner_origin_x + inner_w) or end_abs_y > (inner_origin_y + inner_h):
+                exceeded.append(grid_idx)
+
+        # Check each existing grid independently
+        for grid_idx in range(1, 4):
+            grid_attr = f'grid_{grid_idx}'
+            grid_obj = getattr(gui, grid_attr, None)
+            if grid_obj is not None:
+                check_grid_obj(grid_obj, grid_idx)
+
+        if exceeded:
+            if len(exceeded) == 1:
+                open_secondary_window(f"Grid {exceeded[0]} exceeds acceptance size of 19x39 mm")
+            else:
+                open_secondary_window(f"Grids {', '.join(map(str, exceeded))} exceed acceptance size of 19x39 mm")
 
 def open_secondary_window(text):
     secondary_window = tk.Toplevel()
@@ -492,76 +567,3 @@ def open_secondary_window(text):
         activebackground='#00ffff', activeforeground=COLORS['bg_primary']
     )
     button_close.place(x=75, y=75)
-
-
-def check_input(gui):
-    global_entry = read_entries(gui.entry)
-    # Read global offsets (for positioning, not sizing)
-    first_x_off = float(global_entry[2]) if len(global_entry) > 2 else 0.0
-    first_y_off = float(global_entry[3]) if len(global_entry) > 3 else 0.0
-    # absolute build plate origin (for rectangle positioning)
-    x_abs = float(global_entry[0]) if len(global_entry) > 0 else 0.0
-    y_abs = float(global_entry[1]) if len(global_entry) > 1 else 0.0
-
-    # rectangle params (must match canvas_drawer)
-    rect_w = 20.0
-    rect_h = 40.0
-    # inner acceptance rectangle dimensions (mm)
-    inner_w = 19.0
-    inner_h = 39.0
-    # require minimum inset from left and bottom (mm)
-    inset_lb = 0.5
-
-    exceeded = []
-
-    # Helper to check a grid safely
-    def check_grid_obj(grid_obj, grid_idx):
-        try:
-            vals = read_entries(grid_obj.entry)
-        except Exception:
-            return
-        # vals expected: rows, cols, x_step, y_step, ..., grid_offset_x, grid_offset_y
-        try:
-            rows = int(vals[0])
-            cols = int(vals[1])
-            x_step = float(vals[2])
-            y_step = float(vals[3])
-            grid_x_off = float(vals[9]) if len(vals) > 9 else 0.0
-            grid_y_off = float(vals[10]) if len(vals) > 10 else 0.0
-        except Exception:
-            return
-
-        # Compute grid physical span (independent per-grid): (n-1)*step between first and last
-        grid_width = (cols - 1) * x_step if cols > 0 else 0.0
-        grid_height = (rows - 1) * y_step if rows > 0 else 0.0
-
-        # compute absolute rectangle inner origin (visual center, logical inset applied below)
-        rect_x = x_abs + first_x_off
-        rect_y = y_abs + first_y_off
-        inner_vis_x = rect_x + (rect_w - inner_w) / 2.0
-        inner_vis_y = rect_y + (rect_h - inner_h) / 2.0
-        inner_origin_x = inner_vis_x + inset_lb
-        inner_origin_y = inner_vis_y + inset_lb
-
-        # grid absolute start/end positions
-        start_abs_x = rect_x + grid_x_off
-        start_abs_y = rect_y + grid_y_off
-        end_abs_x = start_abs_x + grid_width
-        end_abs_y = start_abs_y + grid_height
-
-        # if grid starts before inner origin or ends beyond inner origin + inner size -> exceeded
-        if start_abs_x < inner_origin_x or start_abs_y < inner_origin_y or end_abs_x > (inner_origin_x + inner_w) or end_abs_y > (inner_origin_y + inner_h):
-            exceeded.append(grid_idx)
-
-    # Check each existing grid independently
-    for grid_idx in range(1, 4):
-        grid_attr = f'grid_{grid_idx}'
-        grid_obj = getattr(gui, grid_attr, None)
-        if grid_obj is not None:
-            check_grid_obj(grid_obj, grid_idx)
-
-    if exceeded:
-        if len(exceeded) == 1:
-            open_secondary_window(f"Grid {exceeded[0]} exceeds acceptance size of 19x39 mm")
-        else:
-            open_secondary_window(f"Grids {', '.join(map(str, exceeded))} exceed acceptance size of 19x39 mm")

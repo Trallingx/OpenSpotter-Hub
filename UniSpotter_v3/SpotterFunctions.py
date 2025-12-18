@@ -9,12 +9,14 @@ def read_defaults(file):
     return data
 
 def save_defaults(file, *section_dicts):
-    """
-    section_dicts: one or more dicts (grid, cleaning, washing)
-    """
     data = {}
+
     for section in section_dicts:
-        data.update(section)  # dict merge, safe and explicit
+        if not isinstance(section, dict):
+            raise TypeError(
+                f"save_defaults expected dicts, got {type(section).__name__}: {section}"
+            )
+        data.update(section)
 
     with open(file, "w") as f:
         json.dump(data, f, indent=2)
@@ -30,6 +32,25 @@ def write_state(state, config_dir=None):
     
     with open(filepath, 'w') as file:
         json.dump({"grid_count": state}, file, indent=2)
+
+def entries_to_dict(entries, fields):
+    """
+    Convert a list of tk.Entry widgets to a dict keyed by Field.key.
+    Assumes same order as fields list.
+    """
+    result = {}
+    for entry, field in zip(entries, fields):
+        try:
+            value = entry.get()
+            # Convert numeric types if needed
+            if field.unit in ("mm", "uL", "int", "s"):
+                value = float(value)
+                if field.unit == "int":
+                    value = int(value)
+        except Exception:
+            value = field.default
+        result[field.key] = value
+    return result
 
 
 def create_coordinates(rows, cols,
