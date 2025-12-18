@@ -1,9 +1,9 @@
 import os
 from gui_v3 import DropletGui
-from SpotterFunctions import read_defaults, dict_to_list
+from SpotterFunctions import read_defaults
 from grid import create_labels
-from input_configs import get_global_inputs
 import json
+from input_configs import GLOBAL_FIELDS
 
 if __name__ == "__main__":
     config_dir = os.path.dirname(os.path.abspath(__file__))
@@ -26,9 +26,9 @@ if __name__ == "__main__":
         global_defaults = json.load(f)
 
     # Get input configuration
-    list_of_inputs = get_global_inputs(global_defaults)
+    
 
-    create_labels(list_of_inputs, Gui.entry, Gui.global_input_frame)
+    create_labels(GLOBAL_FIELDS, global_defaults, Gui.entry, Gui.global_input_frame)
     
     # Set global fields to locked state by default
     Gui._update_global_fields_state()

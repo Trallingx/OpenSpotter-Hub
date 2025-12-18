@@ -1,57 +1,25 @@
 import json
 import os
-from input_configs import get_keys
 
 def read_defaults(file):
-    with open(file, 'r') as config_file:
-        data = json.load(config_file)
-        # Convert dict to list format for backward compatibility
-        if isinstance(data, dict):
-            return data
-        return data
+    with open(file, "r") as f:
+        data = json.load(f)
+    if not isinstance(data, dict):
+        raise ValueError("Config file must contain a JSON object")
+    return data
 
-def dict_to_list(data_dict, keys_order):
-    """Convert dict config to list format (for backward compatibility with existing code)."""
-    if isinstance(data_dict, dict):
-        return [data_dict.get(key, 0) for key in keys_order]
-    return data_dict
+def save_defaults(file, *section_dicts):
+    """
+    section_dicts: one or more dicts (grid, cleaning, washing)
+    """
+    data = {}
+    for section in section_dicts:
+        data.update(section)  # dict merge, safe and explicit
 
+    with open(file, "w") as f:
+        json.dump(data, f, indent=2)
 
-def list_to_dict(data_list, keys):
-    """Convert list config to dict format."""
-    if isinstance(data_list, list):
-        return {key: value for key, value in zip(keys, data_list)}
-    return data_list
-
-def save_defaults(grid_entry, cleaning_entry, washing_entry, file):
-    """Save configuration to JSON file (key-value pairs)."""
-    data = read_entries(grid_entry)
-    if cleaning_entry:
-        cleaning_data = read_entries(cleaning_entry)
-        data = data + cleaning_data   # ← this merges both lists
-    if washing_entry:
-        washing_data = read_entries(washing_entry)
-        data = data + washing_data   # ← this merges washing data
-    
-    print(data)
-    # Decide which keys to use based on filename
-    keys = get_keys(file,data)
-
-
-    # Convert list of tuples → dict {key: value}
-    data_dict = {}
-    for key, item in zip(keys, data):
-        # Each item is likely (label, value, unit)
-        if isinstance(item, (list, tuple)) and len(item) > 1:
-            data_dict[key] = float(item[1])
-        else:
-            data_dict[key] = float(item) if isinstance(item, (int, float, str)) else None
-
-    # Save to JSON
-    with open(file, 'w') as config_file:
-        json.dump(data_dict, config_file, indent=2)
-        print(f"✅ Saved defaults to {file}")
-
+    print(f"✅ Saved defaults to {file}")
 
 def write_state(state, config_dir=None):
     """Write grid state to JSON file."""
@@ -114,27 +82,17 @@ def read_entries(entry):
     count = count_range(entry)
     return [float(entry[i].get()) for i in range(count)]
 
-def read_entries_as_dict(entry, list_of_inputs):
+def read_entries_as_dict(entries, fields):
     """
-    Convert entry list to dictionary using labels from list_of_inputs.
-    
-    Args:
-        entry: List of tkinter Entry widgets
-        list_of_inputs: List of tuples (label, default_value, unit)
-    
-    Returns:
-        Dictionary mapping simplified labels to float values
+    entries: list of Entry widgets
+    fields: list of Field objects (or tuples with .key)
     """
-    values = read_entries(entry)
     result = {}
-    
-    for i, (label, _, _) in enumerate(list_of_inputs):
-        if i < len(values):
-            # Simplify label: remove numbers, colons, convert to lowercase, replace spaces with underscores
-            simplified_label = label.lower().strip().rstrip(':').split(':')[-1].strip()
-            simplified_label = simplified_label.replace(' ', '_')
-            result[simplified_label] = values[i]
-    
+    for entry, field in zip(entries, fields):
+        try:
+            result[field.key] = float(entry.get())
+        except ValueError:
+            result[field.key] = field.default
     return result
 
 def select_loading_container(loading_container, y_container_4):

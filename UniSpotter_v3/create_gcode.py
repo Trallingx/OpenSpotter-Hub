@@ -1,12 +1,9 @@
 from tkinter import filedialog
-from SpotterFunctions import read_entries
 from SpotterFunctions import read_entries_as_dict
 from SpotterFunctions import create_coordinates
 from SpotterFunctions import select_loading_container
 from SpotterFunctions import select_cleaning_containers
-from input_configs import get_global_inputs, get_grid_inputs, get_cleaning_inputs
-import input_configs as ic  
-from input_configs import GLOBAL_INPUT_LABELS, GRID_INPUT_LABELS, CLEANING_INPUT_LABELS, WASHING_INPUT_LABELS
+from input_configs import GLOBAL_FIELDS, GRID_FIELDS, WASHING_FIELDS, CLEANING_FIELDS
 
 def generate_anchor_calibration(self):
     """
@@ -22,7 +19,7 @@ def generate_anchor_calibration(self):
     file = open(filepath, "w")
 
     # Get global inputs
-    entry_dict = read_entries_as_dict(self.entry, GLOBAL_INPUT_LABELS)
+    entry_dict = read_entries_as_dict(self.entry, GLOBAL_FIELDS)
     
     x_abs = float(entry_dict['x_cord._of_the_y-line'])
     y_abs = float(entry_dict['y_cord._of_the_x-line'])
@@ -51,7 +48,7 @@ def save_file(grid_count, self):
     file = open(filepath, "w")
 
     # defining global coordinates
-    entry_dict = read_entries_as_dict(self.entry, GLOBAL_INPUT_LABELS)
+    entry_dict = read_entries_as_dict(self.entry, GLOBAL_FIELDS)
     
     loop_counter = 0
     x_abs = float(entry_dict['x_cord_of_y_line'])
@@ -85,16 +82,16 @@ def save_file(grid_count, self):
         if grid_obj is None:
             continue
         
-        grid_entry_dict = read_entries_as_dict(grid_obj.grid_entry, GRID_INPUT_LABELS)
-        rows = int(grid_entry_dict['set_rows'])
-        cols = int(grid_entry_dict['set_columns'])
+        grid_entry_dict = read_entries_as_dict(grid_obj.grid_entry, GRID_FIELDS)
+        rows = int(grid_entry_dict['rows'])
+        cols = int(grid_entry_dict['cols'])
         # step size inside the grid
-        x_shift = float(grid_entry_dict['x_step_size'])
-        y_shift = float(grid_entry_dict['y_step_size'])
-        extrude = -float(grid_entry_dict['dispense_volume'])
+        x_shift = float(grid_entry_dict['pitch_x'])
+        y_shift = float(grid_entry_dict['pitch_y'])
+        extrude = -float(grid_entry_dict['dispense_vol'])
         emptying_container = int(grid_entry_dict['leftovers_into'])
         # z calibrations
-        z_low = 4 - float(grid_entry_dict['z-adjust_down'])  # z_low = 4mm - adjustment
+        z_low = 4 - float(grid_entry_dict['z_adjust'])  # z_low = 4mm - adjustment
         z = 4
         # waiting time upon which the droplet forms
         droplet_wait_time = float(grid_entry_dict['droplet_forming_time'])
@@ -210,7 +207,7 @@ def generate_grid(self, rows, cols, x_shift, y_shift, extrude, grid_x_offset, gr
         if not is_cleaning and grid_obj and hasattr(grid_obj, 'washing_enabled'):
             
             if grid_obj.washing_enabled.get():
-                washing_entry_dict = read_entries_as_dict(grid_obj.washing_entry, WASHING_INPUT_LABELS)
+                washing_entry_dict = read_entries_as_dict(grid_obj.washing_entry, WASHING_FIELDS)
                 washing_after_x_spots = int(washing_entry_dict['washing_after_x_spots'])
                 if washing_after_x_spots > 0 and washing_spot_counter[0] % washing_after_x_spots == 0:
                     print("washing conditions met")
@@ -254,6 +251,7 @@ def emptying_syringe(file, emptying_container, y_container_3, y_container_4, z_h
     """
     Select container and emptying sequence
     """
+    print(emptying_container)
     y_container_emptying, y_container_cleaning = select_cleaning_containers(emptying_container,
                                                                             y_container_3,
                                                                             y_container_4)
@@ -269,14 +267,14 @@ def auto_cleaning(grid_obj, file, x_abs, y_abs, z, z_low):
     Uses the same logic as the normal grid generation.
     """
     # Get cleaning grid inputs
-    cleaning_entry_dict = read_entries_as_dict(grid_obj.cleaning_entry, CLEANING_INPUT_LABELS)
+    cleaning_entry_dict = read_entries_as_dict(grid_obj.cleaning_entry, CLEANING_FIELDS)
     
-    cleaning_rows = int(cleaning_entry_dict['set_rows'])
-    cleaning_cols = int(cleaning_entry_dict['set_columns'])
-    cleaning_x_shift = float(cleaning_entry_dict['x_step_size'])
-    cleaning_y_shift = float(cleaning_entry_dict['y_step_size'])
-    cleaning_x_offset = float(cleaning_entry_dict['grid_offset_x'])
-    cleaning_y_offset = float(cleaning_entry_dict['grid_offset_y'])
+    cleaning_rows = int(cleaning_entry_dict['rows_cleaning'])
+    cleaning_cols = int(cleaning_entry_dict['cols_cleaning'])
+    cleaning_x_shift = float(cleaning_entry_dict['pitch_x_cleaning'])
+    cleaning_y_shift = float(cleaning_entry_dict['pitch_y_cleaning'])
+    cleaning_x_offset = float(cleaning_entry_dict['grid_offset_x_cleaning'])
+    cleaning_y_offset = float(cleaning_entry_dict['grid_offset_y_cleaning'])
     cleaning_dispense_vol = float(cleaning_entry_dict['dispense_vol_cleaning'])
         
     file.write("\n\n; Create cleaning sequence\n")
@@ -311,8 +309,8 @@ def auto_washing(self,grid_obj, current_position, z_high, file):
         file: File object to write to
     """
     # Get washing grid inputs
-    washing_entry_dict = read_entries_as_dict(grid_obj.washing_entry, WASHING_INPUT_LABELS)
-    global_entry_dict = read_entries_as_dict(self.entry, GLOBAL_INPUT_LABELS)
+    washing_entry_dict = read_entries_as_dict(grid_obj.washing_entry, WASHING_FIELDS)
+    global_entry_dict = read_entries_as_dict(self.entry, GLOBAL_FIELDS)
     
     washing_depth = float(washing_entry_dict['washing_depth'])
     washing_speed = float(washing_entry_dict['washing_speed'])

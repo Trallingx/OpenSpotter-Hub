@@ -19,7 +19,7 @@
   "grid_offset_y_cleaning": 30.0,
   "spots_before_cleaning": 10.0,
   "washing_depth": 1.0,
-  "washing_speed": 1000.0,
+  "washing_speed": 5000.0,
   "washing_upper_bound": 30.0,
   "washing_lower_bound": 20.0,
   "washing_column_offset": 40.0,

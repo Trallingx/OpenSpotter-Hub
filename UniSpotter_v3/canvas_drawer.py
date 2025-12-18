@@ -1,9 +1,8 @@
 import math
 import tkinter as tk
 from tkinter import messagebox
-from SpotterFunctions import read_entries, dict_to_list ,read_entries_as_dict
-from input_configs import get_keys
-from input_configs import GLOBAL_INPUT_LABELS, GRID_INPUT_LABELS, CLEANING_INPUT_LABELS, WASHING_INPUT_LABELS
+from SpotterFunctions import read_entries, read_entries_as_dict
+from input_configs import GLOBAL_FIELDS
 
 class CanvasDrawer:
     def __init__(self, gui, poll_interval=500):
@@ -93,7 +92,7 @@ class CanvasDrawer:
             # nothing to draw
             return
         #print("try to start")
-        global_vals_dict = read_entries_as_dict(self.gui.entry, GLOBAL_INPUT_LABELS)
+        global_vals_dict = read_entries_as_dict(self.gui.entry, GLOBAL_FIELDS)
         #print(global_vals_dict)
         x_abs = float(global_vals_dict['x_cord_of_y_line'])
         #print("one read successss")

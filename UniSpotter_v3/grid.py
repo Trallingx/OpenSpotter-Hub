@@ -1,6 +1,6 @@
 from gui_v3 import *
 from SpotterFunctions import *
-from input_configs import get_grid_inputs, get_cleaning_inputs, get_washing_inputs
+from input_configs import GRID_FIELDS, CLEANING_FIELDS, WASHING_FIELDS
 import tkinter as tk
 import logging
 
@@ -20,6 +20,8 @@ class Grid(object):
         self.frame_row = frame_row
         self.frame_col = frame_col
         self.create_grid(config, background)
+
+        
 
     def _toggle_cleaning_inputs(self):
         """Show/hide cleaning input widgets based on checkbox state."""
@@ -99,8 +101,13 @@ class Grid(object):
         with open(config_path, "r") as f:
             grid_defaults = json.load(f)
         
-        list_of_inputs = get_grid_inputs(grid_defaults)
-        create_labels(list_of_inputs, self.grid_entry, self.grid_input_frame, self.gui)
+        create_labels(
+            GRID_FIELDS,
+            grid_defaults,
+            self.grid_entry,
+            self.grid_input_frame,
+            self.gui
+            )
 
         # Add checkbox to enable/disable cleaning grid at row 1
         self.cleaning_enabled = tk.BooleanVar(value=False)
@@ -115,9 +122,15 @@ class Grid(object):
         cleaning_checkbox.grid(row=1, column=0, columnspan=3, pady=8, padx=8, sticky="W")
         self.cleaning_widgets.append(cleaning_checkbox)
 
-        list_of_cleaning_inputs = get_cleaning_inputs(grid_defaults)
-        create_labels(list_of_cleaning_inputs, self.cleaning_entry, self.cleaning_input_frame, self.gui,
-                     start_row=2, widgets_list=self.cleaning_widgets)
+        create_labels(
+            CLEANING_FIELDS,
+            grid_defaults,
+            self.cleaning_entry,
+            self.cleaning_input_frame,
+            self.gui,
+            start_row=2,
+            widgets_list=self.cleaning_widgets
+        )
         
         # Add checkbox to enable/disable washing needle at row 10 (after cleaning inputs)
         self.washing_enabled = tk.BooleanVar(value=False)
@@ -132,10 +145,15 @@ class Grid(object):
         washing_checkbox.grid(row=10, column=0, columnspan=3, pady=8, padx=8, sticky="W")
         self.washing_widgets.append(washing_checkbox)
 
-        list_of_washing_inputs = get_washing_inputs(grid_defaults)
-        create_labels(list_of_washing_inputs, self.washing_entry, self.cleaning_input_frame, self.gui,
-                     start_row=11, widgets_list=self.washing_widgets)
-        
+        create_labels(
+            WASHING_FIELDS,
+            grid_defaults,
+            self.washing_entry,
+            self.cleaning_input_frame,
+            self.gui,
+            start_row=11,
+            widgets_list=self.washing_widgets
+            )
         # Initially hide washing inputs
         self._toggle_washing_inputs()
         
@@ -143,77 +161,48 @@ class Grid(object):
         self._toggle_cleaning_inputs()
 
 
-def create_labels(list_of_inputs, entry, input_frame, gui=None, start_row=1, widgets_list=None):
-    label = []
-    labelx = []
-    
-    for i in enumerate(list_of_inputs):
-        label.append('label' + str(i))
-        labelx.append('labelx' + str(i))
-        entry.append('entry' + str(i))
+def create_labels(fields, defaults, entries, input_frame,
+                gui=None, start_row=1, widgets_list=None):
 
-    for inputs in list_of_inputs:
-        # create widgets with modern styling
-        label[list_of_inputs.index(inputs)] = tk.Label(input_frame, text=inputs[0], 
-                                                       bg='#2a2a3e', fg='#ffffff', font=("Segoe UI", 9))
-        entry[list_of_inputs.index(inputs)] = tk.Entry(input_frame, bd=0, relief='flat',
-                                                       bg='#3a3a4e', fg='#00d4ff', font=("Segoe UI", 9, "bold"),
-                                                       insertbackground='#00d4ff')
-        labelx[list_of_inputs.index(inputs)] = tk.Label(input_frame, text=inputs[2],
-                                                        bg='#2a2a3e', fg='#888899', font=("Segoe UI", 8))
-        
-        # Bind key release to trigger canvas updates
+    for i, field in enumerate(fields):
+        label = tk.Label(
+            input_frame,
+            text=field.label,
+            bg='#2a2a3e', fg='#ffffff',
+            font=("Segoe UI", 9)
+        )
+
+        entry = tk.Entry(
+            input_frame, bd=0, relief='flat',
+            bg='#3a3a4e', fg='#00d4ff',
+            font=("Segoe UI", 9, "bold"),
+            insertbackground='#00d4ff'
+        )
+
+        unit = tk.Label(
+            input_frame,
+            text=field.unit,
+            bg='#2a2a3e', fg='#888899',
+            font=("Segoe UI", 8)
+        )
+
+        # Insert default value
+        value = defaults.get(field.key, field.default)
+        entry.insert(0, str(value))
+
+        # Canvas update hook
         if gui and hasattr(gui, 'canvas_drawer'):
-            def make_on_change(canvas_drawer):
-                def on_change(event):
-                    try:
-                        if canvas_drawer:
-                            canvas_drawer._poll()
-                    except Exception:
-                        pass
-                return on_change
-            entry[list_of_inputs.index(inputs)].bind('<KeyRelease>', make_on_change(gui.canvas_drawer))
-        
-        # starting values (insert before adding validation)
-        label_text = inputs[0].lower()
-        start_val = inputs[1]
-        if ('set rows' in label_text or 'set columns' in label_text) and start_val is not None:
-            # ensure initial rows/columns are integer strings (handle floats in config)
-            try:
-                start_val_int = int(float(start_val))
-                entry[list_of_inputs.index(inputs)].insert(0, str(start_val_int))
-            except Exception:
-                entry[list_of_inputs.index(inputs)].insert(0, str(start_val))
-        else:
-            entry[list_of_inputs.index(inputs)].insert(0, start_val)
+            entry.bind('<KeyRelease>', lambda e: gui.canvas_drawer._poll())
 
-        # Add validation for rows/columns to prevent excessively large inputs
-        if 'set rows' in label_text or 'set columns' in label_text:
-            def make_validator(max_val=150):
-                def validate(new_value):
-                    if new_value == '':
-                        return True
-                    try:
-                        v = int(new_value)
-                    except Exception:
-                        return False
-                    return 1 <= v <= max_val
-                return validate
+        row = start_row + i
+        label.grid(row=row, column=0, sticky="WE", pady=4, padx=8)
+        entry.grid(row=row, column=1, sticky="WE", padx=4, pady=4)
+        unit.grid(row=row, column=2, sticky="W", pady=4, padx=4)
 
-            vcmd = input_frame.register(make_validator(150))
-            entry[list_of_inputs.index(inputs)].config(validate='key', validatecommand=(vcmd, '%P'))
-        
-        # place widgets using grid() with proper row offset
-        row = start_row + list_of_inputs.index(inputs)
-        label[list_of_inputs.index(inputs)].grid(row=row, column=0, sticky="WE", pady=4, padx=8)
-        entry[list_of_inputs.index(inputs)].grid(row=row, column=1, sticky="WE", padx=4, pady=4)
-        labelx[list_of_inputs.index(inputs)].grid(row=row, column=2, sticky="W", pady=4, padx=4)
-        
-        # Track widgets for show/hide if widgets_list is provided
+        entries.append(entry)
+
         if widgets_list is not None:
-            widgets_list.append(label[list_of_inputs.index(inputs)])
-            widgets_list.append(entry[list_of_inputs.index(inputs)])
-            widgets_list.append(labelx[list_of_inputs.index(inputs)])
-            widgets_list.append(labelx[list_of_inputs.index(inputs)])
+            widgets_list.extend([label, entry, unit])
+
 
 
