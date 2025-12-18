@@ -38,7 +38,9 @@ GLOBAL_FIELDS: List[Field] = [
     Field("movement_speed", "Movement Speed", "mm"),
     Field("decent_speed", "Decent Speed", "mm"),
     Field("adcent_speed", "Adcent Speed", "mm"),
-
+    Field("dispensing_speed", "Dispensing Speed", "mm"),
+    Field("refilling_speed", "Refilling Speed", "mm"),
+    Field("max_syringe_vol", "Maximum Syringe Volume", "uL"),
 ]
 
 

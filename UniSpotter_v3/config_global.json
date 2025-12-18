@@ -14,7 +14,10 @@
   "probe_y": 70.0,
   "z_zero_pos": 4.0,
   "z_movement_pos": 40.0,
-  "movement_speed": 5000,
-  "decent_speed": 500,
-  "adcent_speed": 5000
+  "movement_speed": 8000.0,
+  "decent_speed": 5000.0,
+  "adcent_speed": 5000.0,
+  "dispensing_speed": 500.0,
+  "refilling_speed": 250.0,
+  "max_syringe_vol": 10.0
 }

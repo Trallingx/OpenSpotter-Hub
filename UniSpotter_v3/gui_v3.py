@@ -248,8 +248,47 @@ class DropletGui(tk.Tk):
         )
         self.lock_button.grid(row=0, column=1, sticky='e', padx=(8, 0))
 
-        self.global_input_frame = tk.Frame(self.global_frame, bg=COLORS['bg_secondary'], relief='flat', bd=0, highlightthickness=0)
-        self.global_input_frame.grid(row=1, column=0, sticky='nsew', padx=8, pady=(0, 8))
+                # ---- Scrollable Global Input Frame ----
+        global_container = tk.Frame(self.global_frame, bg=COLORS['bg_secondary'])
+        global_container.grid(row=1, column=0, sticky='nsew', padx=8, pady=(0, 8))
+        global_container.rowconfigure(0, weight=1)
+        global_container.columnconfigure(0, weight=1)
+
+        global_canvas = tk.Canvas(
+            global_container,
+            bg=COLORS['bg_secondary'],
+            highlightthickness=0
+        )
+
+        global_scrollbar = tk.Scrollbar(
+            global_container,
+            orient='vertical',
+            command=global_canvas.yview
+        )
+
+        self.global_input_frame = tk.Frame(
+            global_canvas,
+            bg=COLORS['bg_secondary']
+        )
+
+        self.global_input_frame.bind(
+            "<Configure>",
+            lambda e: global_canvas.configure(
+                scrollregion=global_canvas.bbox("all")
+            )
+        )
+
+        global_canvas.create_window(
+            (0, 0),
+            window=self.global_input_frame,
+            anchor="nw"
+        )
+
+        global_canvas.configure(yscrollcommand=global_scrollbar.set)
+
+        global_canvas.grid(row=0, column=0, sticky='nsew')
+        global_scrollbar.grid(row=0, column=1, sticky='ns')
+
 
         # ---- Anchor calibration checkbox and button ----
         self.calibration_frame = tk.Frame(self.global_frame, bg=COLORS['bg_tertiary'], relief='flat', bd=0, highlightthickness=0)
