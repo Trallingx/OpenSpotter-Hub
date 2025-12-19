@@ -30,10 +30,12 @@ def generate_anchor_calibration(self):
     speed = float(entry_dict['movement_speed'])
     decent_speed = float(entry_dict['decent_speed'])
     adcent_speed = float(entry_dict['adcent_speed'])
+    probe_x = float(entry_dict['probe_x'])
+    probe_y = float(entry_dict['probe_y'])
     
     
     # Write start G-code
-    start_gcode(file, z_high)
+    start_gcode(file, z_high, probe_x, probe_y, speed, decent_speed, adcent_speed)
     
     # Write anchor calibration sequence
     file.write('; Anchor Calibration Sequence\n')
@@ -57,14 +59,14 @@ def save_file(grid_count, self):
     
     loop_counter = 0
     x_abs = float(entry_dict['x_cord_of_y_line'])
-    x_loading_calibration = 32.25
     y_abs = float(entry_dict['y_cord_of_x_line'])
-    y_loading_calibration = 86
-    x_offset = x_abs + float(entry_dict['tuning_offset_x'])
-    x_offset_abs = x_offset
     y_offset = y_abs + float(entry_dict['tuning_offset_y'])
-    y_offset_abs = y_offset
+    x_offset = x_abs + float(entry_dict['tuning_offset_x'])
     container_z_low = float(entry_dict['container_z_height'])
+    x_loading_calibration = float(entry_dict['container4_x_pos'])
+    y_loading_calibration = float(entry_dict['container4_y_pos'])
+    x_offset_abs = x_offset
+    y_offset_abs = y_offset
     probe_x = float(entry_dict['probe_x'])
     probe_y = float(entry_dict['probe_y'])
 
@@ -78,6 +80,7 @@ def save_file(grid_count, self):
     max_syringe_vol = float(entry_dict['max_syringe_vol'])
 
     z_high = float(entry_dict['z_movement_pos'])
+    z_probe = float(entry_dict['z_zero_pos'])
     # code generation
     # creating the coordinates from the intersection between xline and y line which is x and y
     # absolute. From there we start at the initial offset and add the moving step size
@@ -104,8 +107,8 @@ def save_file(grid_count, self):
         extrude = -float(grid_entry_dict['dispense_vol'])
         emptying_container = int(grid_entry_dict['leftovers_into'])
         # z calibrations
-        z_low = 4 - float(grid_entry_dict['z_adjust'])  # z_low = 4mm - adjustment
-        z = 4
+        z = z_probe
+        z_low = z_probe - float(grid_entry_dict['z_adjust'])  # z_low = 4mm - adjustment
         # waiting time upon which the droplet forms
         droplet_wait_time = float(grid_entry_dict['droplet_forming_time'])
         grid_x_offset = float(grid_entry_dict['grid_offset_x'])
@@ -113,8 +116,8 @@ def save_file(grid_count, self):
 
         # filling the syringe
         loading_container = int(grid_entry_dict['loading_from'])
-        x_container = x_loading_calibration + 167
-        y_container_4 = y_loading_calibration + 29
+        x_container = x_loading_calibration
+        y_container_4 = y_loading_calibration
         y_container_3 = y_loading_calibration + 29 - 25
 
         # choosing between container 1 to 2
@@ -161,6 +164,10 @@ def start_gcode(file, z_high, probe_x = 75, probe_y = 70, speed = 5000, decent_s
     file.write('G28 X0 Y0 ;Home X and Y\n')
     file.write(f'G0 X{probe_x} Y{probe_y} ; Go with probe above vacuum chuck\n')
     file.write('G28 Z0 ;Home Z\n')
+    file.write('G1 Z0 F300 ')
+    file.write('M117 Calibrate Needle with spacer\n')
+    file.write(f'M0 Calibrate needle with spacer\n')
+
     #file.write('G92 X100 Y100 Z4 E0 ;Set position to origin (allows negative Z movement)\n')
     file.write(f'G0 Z{z_high} F{adcent_speed}\n')
     #file.write('G1 E10 F500 ;Prime extruder\nG92 E0\n\n')
@@ -272,7 +279,11 @@ def loading_syringe(file, loading_container, y_container_4, x_container, contain
 
     file.write(f'G0 X{x_container} Y{y_container_load} F{speed}\n')
     file.write(f'G0 Z{container_z_low}  F{decent_speed}\n')
-    file.write(f'G1 E{total_fill} F{refilling_speed}; Filling the syringe\n')
+    file.write(f'G1 E{total_fill+3} F{refilling_speed}; Filling the syringe\n')
+    file.write(f'G4 S2\n')
+    file.write('G92 E0\n\n')
+    file.write(f'G1 E{-3} F{refilling_speed/2}; Prevent backlash the syringe\n')
+    file.write(f'G4 S2\n')
     file.write(f'G0 Z{z_high} F{adcent_speed}\n')
     file.write('G92 E0\n\n')
 
@@ -309,7 +320,7 @@ def auto_cleaning(grid_obj, file, x_abs, y_abs, z, z_low, speed = 5000, decent_s
     cleaning_y_shift = float(cleaning_entry_dict['pitch_y_cleaning'])
     cleaning_x_offset = float(cleaning_entry_dict['grid_offset_x_cleaning'])
     cleaning_y_offset = float(cleaning_entry_dict['grid_offset_y_cleaning'])
-    cleaning_dispense_vol = float(cleaning_entry_dict['dispense_vol_cleaning'])
+    cleaning_dispense_vol = -float(cleaning_entry_dict['dispense_vol_cleaning'])
         
     file.write("\n\n; Create cleaning sequence\n")
 
@@ -351,9 +362,9 @@ def auto_washing(self,grid_obj, z_high, file, speed = 5000, decent_speed = 500, 
     
     washing_depth = float(washing_entry_dict['washing_depth'])
     washing_speed = float(washing_entry_dict['washing_speed'])
-    washing_upper_bound = float(washing_entry_dict['washing_upper_bound'])
-    washing_lower_bound = float(washing_entry_dict['washing_lower_bound'])
-    washing_column_offset = float(washing_entry_dict['washing_column_offset'])
+    washing_x_pos = float(washing_entry_dict['washing_x_pos'])
+    washing_y_pos = float(washing_entry_dict['washing_y_pos'])
+    washing_line_lenght = float(washing_entry_dict['washing_line_lenght'])
     washing_cycles = int(washing_entry_dict['washing_cycles'])
     
     x_abs = float(global_entry_dict['x_cord_of_y_line'])
@@ -364,7 +375,7 @@ def auto_washing(self,grid_obj, z_high, file, speed = 5000, decent_speed = 500, 
     file.write(f'G0 Z{z_high} F{adcent_speed}\n')
     
     # Move to washing column position with offset
-    file.write(f'G0 X{x_abs+washing_column_offset} Y{y_abs+washing_upper_bound} F{speed}\n')
+    file.write(f'G0 X{x_abs+washing_x_pos} Y{y_abs+washing_y_pos} F{speed}\n')
     
     # Move down to upper bound
     file.write(f'G0 Z{washing_depth} F{decent_speed}\n')
@@ -372,9 +383,10 @@ def auto_washing(self,grid_obj, z_high, file, speed = 5000, decent_speed = 500, 
     # forward and backward between bounds
     for cycle in range(washing_cycles):
         # Move down to lower bound
-        file.write(f'G0 Y{y_abs+washing_lower_bound} F{washing_speed}\n')        
+        file.write(f'G0 X{x_abs+washing_x_pos+washing_line_lenght} F{washing_speed}\n')        
         # Move back up to upper bound
-        file.write(f'G0 Y{y_abs+washing_upper_bound} F{washing_speed}\n')
+        file.write(f'G0 X{x_abs+washing_x_pos} F{washing_speed}\n')
 
     # Return to safe height
     file.write(f'G0 Z{z_high} F{adcent_speed}\n')
+    file.write('G0 X50 Y50 F5000\n')

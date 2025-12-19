@@ -25,6 +25,8 @@ GLOBAL_FIELDS: List[Field] = [
     Field("tuning_offset_x", "First Spot X-offset", "mm"),
     Field("tuning_offset_y", "First Spot Y-offset", "mm"),
     Field("container_z_height", "Container Z Height", "mm"),
+    Field("container4_x_pos", "Container 4 X Pos", "mm"),
+    Field("container4_y_pos", "Container 4 Y Pos", "mm"),
     Field("acceptance_square_x", "Acceptance Square X", "mm"),
     Field("acceptance_square_y", "Acceptance Square Y", "mm"),
     Field("base_square_x", "Base Square X", "mm"),
@@ -74,9 +76,9 @@ CLEANING_FIELDS: List[Field] = [
 WASHING_FIELDS: List[Field] = [
     Field("washing_depth", "Washing Depth", "mm"),
     Field("washing_speed", "Washing Speed", "mm/s"),
-    Field("washing_upper_bound", "Washing Upper Bound", "mm"),
-    Field("washing_lower_bound", "Washing Lower Bound", "mm"),
-    Field("washing_column_offset", "Washing Column Offset", "mm"),
+    Field("washing_x_pos", "Washing X position", "mm"),
+    Field("washing_y_pos", "Washing Y position", "mm"),
+    Field("washing_line_lenght", "Washing line lenght", "mm"),
     Field("washing_after_x_spots", "Washing After X Spots", "int"),
     Field("washing_cycles", "Washing Cycles", "int"),
 ]

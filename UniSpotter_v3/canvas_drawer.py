@@ -220,16 +220,20 @@ class CanvasDrawer:
         # --- Draw washing lines ---
         for g_idx, wvals in washing_data_list:
             wash = {k: float(v) for k, v in wvals.items()}
-            upper, lower = wash.get('washing_upper_bound', 0), wash.get('washing_lower_bound', 0)
-            col_offset = wash.get('washing_column_offset', 0)
+            x_start, x_offset = wash.get('washing_x_pos', 0), wash.get('washing_line_lenght', 0)
+            row_offset = wash.get('washing_y_pos', 0)
+
             main_grid = next((vals for idx, vals in grids_list if idx == g_idx), {})
-            gx_off, gy_off = float(main_grid.get('grid_offset_x', 0)), float(main_grid.get('grid_offset_y', 0))
-            x_pos = x_abs + first_x_off + gx_off + col_offset
-            y_top, y_bottom = y_abs + first_y_off + gy_off + upper, y_abs + first_y_off + gy_off + lower
-            px = anchor_px_base + (x_pos - x_abs) * effective_scale
-            py_top = anchor_py_base - (y_top - y_abs) * effective_scale
-            py_bottom = anchor_py_base - (y_bottom - y_abs) * effective_scale
-            self.canvas.create_line(px, py_top, px, py_bottom, width=3, fill='cyan')
+
+            x_left, x_right = x_abs - x_start, x_abs - x_start - x_offset
+
+            y_pos = y_abs - row_offset
+            print(x_abs,y_abs)
+            px_left = anchor_px_base - (x_left - x_abs) * effective_scale
+            px_right = anchor_px_base - (x_right - x_abs) * effective_scale
+            py = anchor_py_base + (y_pos - y_abs) * effective_scale
+
+            self.canvas.create_line(px_left, py, px_right, py, width=3, fill='cyan')
 
     def _show_exceed_popup(self):
         popup = tk.Toplevel(self.gui)
