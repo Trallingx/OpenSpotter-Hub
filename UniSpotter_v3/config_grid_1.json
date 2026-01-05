@@ -1,8 +1,8 @@
 {
-  "rows": 100,
-  "cols": 100,
-  "pitch_x": 0.7,
-  "pitch_y": 0.7,
+  "rows": 2,
+  "cols": 2,
+  "pitch_x": 23.0,
+  "pitch_y": 23.0,
   "dispense_vol": 0.1,
   "loading_from": "1.0",
   "leftovers_into": "3",

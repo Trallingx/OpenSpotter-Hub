@@ -13,6 +13,7 @@ class Field:
     label: str
     unit: str
     default: Any = 0.0
+    tab: str = ""
 
 
 # ------------------------------------------------------------------
@@ -20,29 +21,35 @@ class Field:
 # ------------------------------------------------------------------
 
 GLOBAL_FIELDS: List[Field] = [
-    Field("x_cord_of_y_line", "X coord. of Y-line", "mm"),
-    Field("y_cord_of_x_line", "Y coord. of X-line", "mm"),
-    Field("tuning_offset_x", "First Spot X-offset", "mm"),
-    Field("tuning_offset_y", "First Spot Y-offset", "mm"),
-    Field("container_z_height", "Container Z Height", "mm"),
-    Field("container4_x_pos", "Container 4 X Pos", "mm"),
-    Field("container4_y_pos", "Container 4 Y Pos", "mm"),
-    Field("acceptance_square_x", "Acceptance Square X", "mm"),
-    Field("acceptance_square_y", "Acceptance Square Y", "mm"),
-    Field("base_square_x", "Base Square X", "mm"),
-    Field("base_square_y", "Base Square Y", "mm"),
-    Field("grey_square_x", "Grey Square X", "mm"),
-    Field("grey_square_y", "Grey Square Y", "mm"),
-    Field("probe_x", "Probe Homing X", "mm"),
-    Field("probe_y", "Probe Homing Y", "mm"),
-    Field("z_zero_pos", "Probing Z", "mm"),
-    Field("z_movement_pos", "Movement Z", "mm"),
-    Field("movement_speed", "Movement Speed", "mm"),
-    Field("decent_speed", "Decent Speed", "mm"),
-    Field("adcent_speed", "Adcent Speed", "mm"),
-    Field("dispensing_speed", "Dispensing Speed", "mm"),
-    Field("refilling_speed", "Refilling Speed", "mm"),
-    Field("max_syringe_vol", "Maximum Syringe Volume", "uL"),
+    Field("x_cord_of_y_line", "X coord. of Y-line", "mm", tab="Anchors"),
+    Field("y_cord_of_x_line", "Y coord. of X-line", "mm", tab="Anchors"),
+    Field("anchor_offset_x", "Aux Anchor Offset X", "mm", tab="Anchors"),
+    Field("anchor_offset_y", "Aux Anchor Offset Y", "mm", tab="Anchors"),
+
+    Field("tuning_offset_x", "First Spot X-offset", "mm", tab="Offsets & Squares"),
+    Field("tuning_offset_y", "First Spot Y-offset", "mm", tab="Offsets & Squares"),
+    Field("acceptance_square_x", "Acceptance Square X", "mm", tab="Offsets & Squares"),
+    Field("acceptance_square_y", "Acceptance Square Y", "mm", tab="Offsets & Squares"),
+    Field("base_square_x", "Base Square X", "mm", tab="Offsets & Squares"),
+    Field("base_square_y", "Base Square Y", "mm", tab="Offsets & Squares"),
+    Field("grey_square_x", "Grey Square X", "mm", tab="Offsets & Squares"),
+    Field("grey_square_y", "Grey Square Y", "mm", tab="Offsets & Squares"),
+
+    Field("container4_x_pos", "Container 4 X Pos", "mm", tab="Containers & Probe"),
+    Field("container4_y_pos", "Container 4 Y Pos", "mm", tab="Containers & Probe"),
+    Field("container_z_height", "Container Z Height", "mm", tab="Containers & Probe"),
+    Field("probe_x", "Probe Homing X", "mm", tab="Containers & Probe"),
+    Field("probe_y", "Probe Homing Y", "mm", tab="Containers & Probe"),
+
+    Field("z_zero_pos", "Probing Z", "mm", tab="Z & Motion"),
+    Field("z_movement_pos", "Movement Z", "mm", tab="Z & Motion"),
+    Field("movement_speed", "Movement Speed", "mm", tab="Z & Motion"),
+    Field("decent_speed", "Decent Speed", "mm", tab="Z & Motion"),
+    Field("adcent_speed", "Adcent Speed", "mm", tab="Z & Motion"),
+
+    Field("dispensing_speed", "Dispensing Speed", "mm", tab="Fluids"),
+    Field("refilling_speed", "Refilling Speed", "mm", tab="Fluids"),
+    Field("max_syringe_vol", "Maximum Syringe Volume", "uL", tab="Fluids"),
 ]
 
 

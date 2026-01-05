@@ -51,11 +51,36 @@ class DropletGui(tk.Tk):
         # Setting up basic UI structure
         self.title('SDU-Spotter - Automated Liquid Dispenser')
         self.configure(bg=COLORS['bg_primary'])
+        self._init_styles()
         # start window in windowed-fullscreen (maximized) on Windows
         try:
             self.state('zoomed')
         except Exception:
             pass
+
+    def _init_styles(self):
+        style = Style()
+        try:
+            style.theme_use('clam')
+        except Exception:
+            pass
+        style.configure(
+            "Custom.TNotebook",
+            background=COLORS['bg_tertiary'],
+            borderwidth=0,
+            padding=0
+        )
+        style.configure(
+            "Custom.TNotebook.Tab",
+            background=COLORS['bg_tertiary'],
+            foreground=COLORS['text_primary'],
+            padding=(10, 6),
+        )
+        style.map(
+            "Custom.TNotebook.Tab",
+            background=[("selected", '#4a4a5e')],
+            foreground=[("selected", COLORS['text_primary'])]
+        )
 
         # Configure root window to expand
         self.rowconfigure(0, weight=1)
@@ -80,7 +105,7 @@ class DropletGui(tk.Tk):
         left_label.grid(row=0, column=0, sticky='ew', pady=(0, 10))
 
         # Create tabbed interface for grids
-        self.grid_tabs = Notebook(self.left_frame)
+        self.grid_tabs = Notebook(self.left_frame, style="Custom.TNotebook")
         self.grid_tabs.grid(row=1, column=0, sticky='nsew')
 
         # ========== MIDDLE FRAME: Canvas and Inputs ==========
@@ -101,7 +126,7 @@ class DropletGui(tk.Tk):
                                fg=COLORS['accent'], bg=COLORS['bg_secondary'])
         canvas_label.grid(row=0, column=0, sticky='ew', padx=10, pady=8)
         
-        self.canvas = tk.Canvas(self.canvas_frame, width=600, height=400, bg=COLORS['bg_tertiary'], 
+        self.canvas = tk.Canvas(self.canvas_frame, width=800, height=500, bg=COLORS['bg_tertiary'], 
                                highlightthickness=0)
         self.canvas.grid(row=1, column=0, sticky='nsew', padx=8, pady=8)
 
@@ -109,36 +134,11 @@ class DropletGui(tk.Tk):
         canvas_controls_frame = tk.Frame(self.canvas_frame, bg=COLORS['bg_secondary'])
         canvas_controls_frame.grid(row=2, column=0, sticky='ew', padx=8, pady=(0, 8))
 
-        # px/mm control for canvas: 0 = auto, >0 overrides computed px/mm
-        # default startup autoscale is 7 px/mm
-        self.px_per_mm = 7.0
-        def _on_px_per_mm(v):
-            try:
-                val = float(v)
-            except Exception:
-                val = 0.0
-            # treat zero as auto
-            self.px_per_mm = val if val > 0 else 0.0
-            # trigger an immediate canvas update if the drawer exists
-            try:
-                if hasattr(self, 'canvas_drawer') and self.canvas_drawer is not None:
-                    # call internal poll which will collect data and redraw if changed
-                    self.canvas_drawer._poll()
-            except Exception:
-                pass
+        # Interaction hint and manual refresh
+        hint = tk.Label(canvas_controls_frame, text='Scroll to zoom • Drag to pan', font=FONTS['small'],
+                        fg=COLORS['text_secondary'], bg=COLORS['bg_secondary'])
+        hint.pack(side='left', padx=(0, 5), pady=2)
 
-        scale_label = tk.Label(canvas_controls_frame, text='px / mm (0=auto):', font=FONTS['small'],
-                              fg=COLORS['text_secondary'], bg=COLORS['bg_secondary'])
-        scale_label.pack(side='left', padx=(0, 5), pady=2)
-        
-        self.px_scale = tk.Scale(canvas_controls_frame, from_=0, to=20, orient='horizontal', 
-                                command=_on_px_per_mm, bg=COLORS['bg_tertiary'], 
-                                fg=COLORS['accent'], troughcolor=COLORS['bg_secondary'],
-                                highlightthickness=0, bd=0)
-        self.px_scale.set(7)
-        self.px_scale.pack(fill='x', padx=5, pady=2, side='left', expand=True)
-
-        # Update canvas button for manual refresh (useful if slider release doesn't redraw)
         def _manual_refresh():
             try:
                 if hasattr(self, 'canvas_drawer') and self.canvas_drawer is not None:

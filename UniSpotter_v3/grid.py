@@ -2,6 +2,7 @@ from gui_v3 import *
 from SpotterFunctions import *
 from input_configs import GRID_FIELDS, CLEANING_FIELDS, WASHING_FIELDS
 import tkinter as tk
+import tkinter.ttk as ttk
 import logging
 
 
@@ -164,23 +165,58 @@ class Grid(object):
 def create_labels(fields, defaults, entries, input_frame,
                 gui=None, start_row=1, widgets_list=None):
 
+    tabs = [f.tab for f in fields if getattr(f, 'tab', '')]
+    use_tabs = bool(tabs)
+    tab_frames = {}
+    row_map = {}
+
+    parent_for_field = input_frame
+    if use_tabs:
+        notebook = ttk.Notebook(input_frame, style="Custom.TNotebook")
+        notebook.grid(row=0, column=0, sticky="nsew")
+        input_frame.rowconfigure(0, weight=1)
+        input_frame.columnconfigure(0, weight=1)
+        seen = []
+        for field in fields:
+            tab_name = field.tab
+            if tab_name in seen or not tab_name:
+                continue
+            seen.append(tab_name)
+            frame = tk.Frame(notebook, bg='#3a3a4e', relief='flat', bd=1, highlightbackground='#555566', highlightthickness=1)
+            for col in range(3):
+                frame.columnconfigure(col, weight=1 if col == 1 else 0)
+            frame.rowconfigure(0, weight=1)
+            notebook.add(frame, text=tab_name)
+            tab_frames[tab_name] = frame
+            row_map[tab_name] = start_row
+    else:
+        input_frame.columnconfigure(1, weight=1)
+
     for i, field in enumerate(fields):
+        tab_name = getattr(field, 'tab', '')
+        parent_for_field = tab_frames.get(tab_name, input_frame)
+        if use_tabs and tab_name:
+            row = row_map[tab_name]
+            row_map[tab_name] += 1
+        else:
+            row = start_row + i
+
         label = tk.Label(
-            input_frame,
+            parent_for_field,
             text=field.label,
             bg='#2a2a3e', fg='#ffffff',
             font=("Segoe UI", 9)
         )
 
         entry = tk.Entry(
-            input_frame, bd=0, relief='flat',
+            parent_for_field, bd=0, relief='flat',
             bg='#3a3a4e', fg='#00d4ff',
             font=("Segoe UI", 9, "bold"),
             insertbackground='#00d4ff'
         )
 
         unit = tk.Label(
-            input_frame,
+            parent_for_field,
             text=field.unit,
             bg='#2a2a3e', fg='#888899',
             font=("Segoe UI", 8)
@@ -194,7 +230,6 @@ def create_labels(fields, defaults, entries, input_frame,
         if gui and hasattr(gui, 'canvas_drawer'):
             entry.bind('<KeyRelease>', lambda e: gui.canvas_drawer._poll())
 
-        row = start_row + i
         label.grid(row=row, column=0, sticky="WE", pady=4, padx=8)
         entry.grid(row=row, column=1, sticky="WE", padx=4, pady=4)
         unit.grid(row=row, column=2, sticky="W", pady=4, padx=4)

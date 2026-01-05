@@ -10,9 +10,22 @@ class CanvasDrawer:
         self.poll_interval = poll_interval
         self._prev_snapshot = None
         self._last_exceed_state = False
+        self._zoom_factor = 1.0
+        self._pan_x = None
+        self._pan_y = None
+        self._fit_scale = 1.0
+        self._origin_x = 0.0
+        self._origin_y = 0.0
+        self._drag_start = None
 
     def start(self):
         self.gui.after(self.poll_interval, self._poll)
+        try:
+            self.canvas.bind("<MouseWheel>", self._on_mousewheel)
+            self.canvas.bind("<Button-1>", self._on_pan_start)
+            self.canvas.bind("<B1-Motion>", self._on_pan_move)
+        except Exception:
+            pass
 
     def refresh(self):
         snapshot = self._collect_data()
@@ -74,6 +87,9 @@ class CanvasDrawer:
         inner_h = float(global_vals.get('acceptance_square_y', 0))
         grey_w = float(global_vals.get('grey_square_x', 0))
         grey_h = float(global_vals.get('grey_square_y', 0))
+        anchor_off_x = float(global_vals.get('anchor_offset_x', -30))
+        anchor_off_y = float(global_vals.get('anchor_offset_y', -40))
+        purple_size = 250.0
 
         # --- Collect points and grid extents ---
         points = []
@@ -104,13 +120,14 @@ class CanvasDrawer:
             for r in range(rows):
                 for c in range(cols):
                     points.append((start_x + c * x_step, start_y + r * y_step, g_idx, dispense))
-
-        if not points:
-            return
-
         # --- Determine canvas bounds ---
-        xs = [p[0] for p in points] + [x_abs, x_abs + rect_w]
-        ys = [p[1] for p in points] + [y_abs, y_abs + rect_h]
+        purple_x1 = x_abs + anchor_off_x
+        purple_y1 = y_abs + anchor_off_y
+        purple_x2 = purple_x1 + purple_size
+        purple_y2 = purple_y1 + purple_size
+
+        xs = ([p[0] for p in points] if points else []) + [x_abs, x_abs + rect_w, purple_x1, purple_x2]
+        ys = ([p[1] for p in points] if points else []) + [y_abs, y_abs + rect_h, purple_y1, purple_y2]
         minx, maxx = min(xs), max(xs)
         miny, maxy = min(ys), max(ys)
 
@@ -119,11 +136,16 @@ class CanvasDrawer:
         reserved_left_px, reserved_bottom_px = 100, 100
         content_margin_x = margin + reserved_left_px
         content_margin_y = margin + reserved_bottom_px
-
         range_x = maxx - minx or 1
         range_y = maxy - miny or 1
-        scale = min((c_w - 2 * margin) / range_x, (c_h - 2 * margin) / range_y)
-        effective_scale = getattr(self.gui, 'px_per_mm', 0.0) or scale
+        fit_scale = min((c_w - 2 * margin) / range_x, (c_h - 2 * margin) / range_y)
+        self._fit_scale = fit_scale
+        if self._pan_x is None:
+            self._pan_x = content_margin_x
+        if self._pan_y is None:
+            self._pan_y = content_margin_y
+        self._origin_x, self._origin_y = minx, miny
+        effective_scale = self._fit_scale * self._zoom_factor
 
         # --- Inner acceptance rectangle centered in black square ---
         inner_x1 = x_abs + (rect_w - inner_w) / 2
@@ -143,12 +165,14 @@ class CanvasDrawer:
 
         # --- Canvas anchor ---
         anchor_px_base = content_margin_x + (x_abs - minx) * effective_scale
-        anchor_py_base = c_h - (content_margin_y + (y_abs - miny) * effective_scale)
+        anchor_px_base = (x_abs - self._origin_x) * effective_scale + self._pan_x
+        anchor_py_base = c_h - ((y_abs - self._origin_y) * effective_scale + self._pan_y)
 
         # --- Background ---
         self.canvas.create_rectangle(0, 0, c_w, c_h, fill='white', outline='')
 
         # --- Draw grey rectangle (centered) ---
+        self.canvas.create_rectangle(0, 0, c_w, c_h, fill='white', outline='')
         grey_x = anchor_px_base + ((x_abs + (rect_w - grey_w)/2) - x_abs) * effective_scale
         grey_y = anchor_py_base - ((y_abs + (rect_h - grey_h)/2) - y_abs) * effective_scale
         self.canvas.create_rectangle(
@@ -170,8 +194,16 @@ class CanvasDrawer:
 
         # --- Draw outer black rectangle ---
         black_x1, black_y1 = anchor_px_base, anchor_py_base
+        black_x1, black_y1 = anchor_px_base, anchor_py_base
         black_x2, black_y2 = black_x1 + rect_w * effective_scale, black_y1 - rect_h * effective_scale
         self.canvas.create_rectangle(black_x1, black_y1, black_x2, black_y2, outline='black', width=2)
+
+        # --- Draw fixed 250x250 purple square anchored by user offsets ---
+        purple_px1 = anchor_px_base + (purple_x1 - x_abs) * effective_scale
+        purple_py1 = anchor_py_base - (purple_y1 - y_abs) * effective_scale
+        purple_px2 = purple_px1 + purple_size * effective_scale
+        purple_py2 = purple_py1 - purple_size * effective_scale
+        self.canvas.create_rectangle(purple_px1, purple_py1, purple_px2, purple_py2, outline='#8000ff', width=3)
 
         # --- Map dispense volume to diameter ---
         try:
@@ -187,8 +219,8 @@ class CanvasDrawer:
         # --- Draw grid points ---
         color_map = {1: 'green', 2: 'orange', 3: 'blue'}
         for x, y, g_idx, dispense in points:
-            px = anchor_px_base + (x - x_abs) * effective_scale
-            py = anchor_py_base - (y - y_abs) * effective_scale
+            px = (x - self._origin_x) * effective_scale + self._pan_x
+            py = c_h - ((y - self._origin_y) * effective_scale + self._pan_y)
             diam_mm = max(0, m * dispense + b)
             rad_px = min(max(1, int((diam_mm / 2) * effective_scale)), 80)
             self.canvas.create_oval(px - rad_px, py - rad_px, px + rad_px, py + rad_px,
@@ -212,8 +244,8 @@ class CanvasDrawer:
                 for c in range(cols):
                     cx = start_x + c * pitch_x
                     cy = start_y + r * pitch_y
-                    px = anchor_px_base + (cx - x_abs) * effective_scale
-                    py = anchor_py_base - (cy - y_abs) * effective_scale
+                    px = (cx - self._origin_x) * effective_scale + self._pan_x
+                    py = c_h - ((cy - self._origin_y) * effective_scale + self._pan_y)
                     s = max(2, int(0.08 * effective_scale))
                     self.canvas.create_rectangle(px - s, py - s, px + s, py + s, fill='purple', outline='black')
 
@@ -223,17 +255,58 @@ class CanvasDrawer:
             x_start, x_offset = wash.get('washing_x_pos', 0), wash.get('washing_line_lenght', 0)
             row_offset = wash.get('washing_y_pos', 0)
 
-            main_grid = next((vals for idx, vals in grids_list if idx == g_idx), {})
+            start_x_world = x_abs + x_start
+            end_x_world = start_x_world + x_offset
+            y_world = y_abs + row_offset
 
-            x_left, x_right = x_abs - x_start, x_abs - x_start - x_offset
-
-            y_pos = y_abs - row_offset
-            print(x_abs,y_abs)
-            px_left = anchor_px_base - (x_left - x_abs) * effective_scale
-            px_right = anchor_px_base - (x_right - x_abs) * effective_scale
-            py = anchor_py_base + (y_pos - y_abs) * effective_scale
+            px_left = (start_x_world - self._origin_x) * effective_scale + self._pan_x
+            px_right = (end_x_world - self._origin_x) * effective_scale + self._pan_x
+            py = c_h - ((y_world - self._origin_y) * effective_scale + self._pan_y)
 
             self.canvas.create_line(px_left, py, px_right, py, width=3, fill='cyan')
+
+        # --- Draw fixed 250x250 purple square anchored by user offsets ---
+        purple_px1 = (purple_x1 - self._origin_x) * effective_scale + self._pan_x
+        purple_py1 = c_h - ((purple_y1 - self._origin_y) * effective_scale + self._pan_y)
+        purple_px2 = purple_px1 + purple_size * effective_scale
+        purple_py2 = purple_py1 - purple_size * effective_scale
+        self.canvas.create_rectangle(purple_px1, purple_py1, purple_px2, purple_py2, outline='#8000ff', width=3)
+
+    def _on_mousewheel(self, event):
+        try:
+            delta = event.delta
+            if delta == 0:
+                return
+            factor = 1.1 if delta > 0 else 0.9
+            self._apply_zoom(factor, event.x, event.y)
+        except Exception:
+            pass
+
+    def _apply_zoom(self, factor, focus_x, focus_y):
+        c_w, c_h = int(self.canvas['width']), int(self.canvas['height'])
+        scale_old = self._fit_scale * self._zoom_factor
+        if scale_old <= 0:
+            return
+        world_x = (focus_x - self._pan_x) / scale_old + self._origin_x
+        world_y = (c_h - focus_y - self._pan_y) / scale_old + self._origin_y
+        self._zoom_factor = max(0.1, min(10.0, self._zoom_factor * factor))
+        scale_new = self._fit_scale * self._zoom_factor
+        self._pan_x = focus_x - (world_x - self._origin_x) * scale_new
+        self._pan_y = (c_h - focus_y) - (world_y - self._origin_y) * scale_new
+        self.refresh()
+
+    def _on_pan_start(self, event):
+        self._drag_start = (event.x, event.y)
+
+    def _on_pan_move(self, event):
+        if not self._drag_start:
+            return
+        dx = event.x - self._drag_start[0]
+        dy = event.y - self._drag_start[1]
+        self._pan_x += dx
+        self._pan_y -= dy
+        self._drag_start = (event.x, event.y)
+        self.refresh()
 
     def _show_exceed_popup(self):
         popup = tk.Toplevel(self.gui)
