@@ -5,18 +5,48 @@ from SpotterFunctions import select_loading_container
 from SpotterFunctions import select_cleaning_containers
 from input_configs import GLOBAL_FIELDS, GRID_FIELDS, WASHING_FIELDS, CLEANING_FIELDS
 
+
+def _prompt_save_path(default_filename: str):
+    """Ask for a save location with a sensible default name and overwrite existing files."""
+    return filedialog.asksaveasfilename(
+        defaultextension=".gcode",
+        initialfile=default_filename,
+        filetypes=[("G-code files", "*.gcode"), ("All files", "*.*")],
+        confirmoverwrite=False,
+    )
+
+
+def _compute_acceptance_square(entry_dict):
+    """
+    Convert acceptance square size + base origin into printer coordinates.
+    Keeps canvas orientation (bottom-left is minimum X/Y).
+    """
+    base_x = float(entry_dict['base_square_x'])
+    base_y = float(entry_dict['base_square_y'])
+    acceptance_x = float(entry_dict['acceptance_square_x'])
+    acceptance_y = float(entry_dict['acceptance_square_y'])
+    x_abs = float(entry_dict['x_cord_of_y_line'])
+    y_abs = float(entry_dict['y_cord_of_x_line'])
+
+    x_left = x_abs + (base_x - acceptance_x) / 2
+    y_bottom = y_abs + (base_y - acceptance_y) / 2
+
+    return {
+        'x_left': x_left,
+        'x_right': x_left + acceptance_x,
+        'y_bottom': y_bottom,
+        'y_top': y_bottom + acceptance_y,
+    }
+
 def generate_anchor_calibration(self):
     """
     Generate anchor calibration G-code.
     Moves needle to grid_x and grid_y offset position, lowers to z height, then elevates.
     Creates a file named "global_calibration.gcode"
     """
-    filepath = filedialog.askdirectory()
+    filepath = _prompt_save_path("global_calibration.gcode")
     if not filepath:
         return
-    
-    filepath = filepath + str("/global_calibration.gcode")
-    file = open(filepath, "w")
 
     # Get global inputs
     entry_dict = read_entries_as_dict(self.entry, GLOBAL_FIELDS)
@@ -32,27 +62,26 @@ def generate_anchor_calibration(self):
     adcent_speed = float(entry_dict['adcent_speed'])
     probe_x = float(entry_dict['probe_x'])
     probe_y = float(entry_dict['probe_y'])
+    acceptance_square = _compute_acceptance_square(entry_dict)
     
     
-    # Write start G-code
-    start_gcode(file, z_high, probe_x, probe_y, speed, decent_speed, adcent_speed)
-    
-    # Write anchor calibration sequence
-    file.write('; Anchor Calibration Sequence\n')
-    file.write(f'G0 X{x_abs} Y{y_abs} F{speed} ; Move to anchor position\n')
-    file.write(f'G0 Z{z_low} F{decent_speed} ; Lower needle to calibration height\n')
-    file.write('G4 S1 ; Wait 1 second at calibration position\n')
-    file.write(f'G0 Z{z_high} F{adcent_speed} ; Raise needle to safe height\n')
-    file.write('; Calibration complete\n')
-    
-    # End
-    file.close()
+    with open(filepath, "w") as file:
+        # Write start G-code
+        start_gcode(file, z_high, probe_x, probe_y, speed, decent_speed, adcent_speed, acceptance_square)
+        
+        # Write anchor calibration sequence
+        file.write('; Anchor Calibration Sequence\n')
+        file.write(f'G0 X{x_abs} Y{y_abs} F{speed} ; Move to anchor position\n')
+        file.write(f'G0 Z{z_low} F{decent_speed} ; Lower needle to calibration height\n')
+        file.write('G4 S1 ; Wait 1 second at calibration position\n')
+        file.write(f'G0 Z{z_high} F{adcent_speed} ; Raise needle to safe height\n')
+        file.write('; Calibration complete\n')
 
 
 def save_file(grid_count, self):
-    filepath = filedialog.askdirectory()
-    filepath = filepath + str("/drop_array.gcode")
-    file = open(filepath, "w")
+    filepath = _prompt_save_path("drop_array.gcode")
+    if not filepath:
+        return
 
     # defining global coordinates
     entry_dict = read_entries_as_dict(self.entry, GLOBAL_FIELDS)
@@ -69,6 +98,7 @@ def save_file(grid_count, self):
     y_offset_abs = y_offset
     probe_x = float(entry_dict['probe_x'])
     probe_y = float(entry_dict['probe_y'])
+    acceptance_square = _compute_acceptance_square(entry_dict)
 
     speed = float(entry_dict['movement_speed'])
     decent_speed = float(entry_dict['decent_speed'])
@@ -87,86 +117,87 @@ def save_file(grid_count, self):
 
     # writing into the file
     # start g-code
-    start_gcode(file, z_high, probe_x, probe_y, speed, decent_speed, adcent_speed)
+    with open(filepath, "w") as file:
+        start_gcode(file, z_high, probe_x, probe_y, speed, decent_speed, adcent_speed, acceptance_square)
 
     # movement loop
-    washing_spot_counter = [0]  # Use list to track across grid iterations
-    for grid_idx in range(grid_count):
-        # Get the correct grid object for this iteration
-        grid_attr = f'grid_{grid_idx + 1}'
-        grid_obj = getattr(self, grid_attr, None)
-        if grid_obj is None:
-            continue
-        
-        grid_entry_dict = read_entries_as_dict(grid_obj.grid_entry, GRID_FIELDS)
-        rows = int(grid_entry_dict['rows'])
-        cols = int(grid_entry_dict['cols'])
-        # step size inside the grid
-        x_shift = float(grid_entry_dict['pitch_x'])
-        y_shift = float(grid_entry_dict['pitch_y'])
-        extrude = -float(grid_entry_dict['dispense_vol'])
-        emptying_container = int(grid_entry_dict['leftovers_into'])
-        # z calibrations
-        z = z_probe
-        z_low = z_probe - float(grid_entry_dict['z_adjust'])  # z_low = 4mm - adjustment
-        # waiting time upon which the droplet forms
-        droplet_wait_time = float(grid_entry_dict['droplet_forming_time'])
-        grid_x_offset = float(grid_entry_dict['grid_offset_x'])
-        grid_y_offset = float(grid_entry_dict['grid_offset_y'])
+        washing_spot_counter = [0]  # Use list to track across grid iterations
+        for grid_idx in range(grid_count):
+            # Get the correct grid object for this iteration
+            grid_attr = f'grid_{grid_idx + 1}'
+            grid_obj = getattr(self, grid_attr, None)
+            if grid_obj is None:
+                continue
+            
+            grid_entry_dict = read_entries_as_dict(grid_obj.grid_entry, GRID_FIELDS)
+            rows = int(grid_entry_dict['rows'])
+            cols = int(grid_entry_dict['cols'])
+            # step size inside the grid
+            x_shift = float(grid_entry_dict['pitch_x'])
+            y_shift = float(grid_entry_dict['pitch_y'])
+            extrude = -float(grid_entry_dict['dispense_vol'])
+            emptying_container = int(grid_entry_dict['leftovers_into'])
+            # z calibrations
+            z = z_probe
+            z_low = z_probe - float(grid_entry_dict['z_adjust'])  # z_low = 4mm - adjustment
+            # waiting time upon which the droplet forms
+            droplet_wait_time = float(grid_entry_dict['droplet_forming_time'])
+            grid_x_offset = float(grid_entry_dict['grid_offset_x'])
+            grid_y_offset = float(grid_entry_dict['grid_offset_y'])
 
-        # filling the syringe
-        loading_container = int(grid_entry_dict['loading_from'])
-        x_container = x_loading_calibration
-        y_container_4 = y_loading_calibration
-        y_container_3 = y_loading_calibration + 29 - 25
+            # filling the syringe
+            loading_container = int(grid_entry_dict['loading_from'])
+            x_container = x_loading_calibration
+            y_container_4 = y_loading_calibration
+            y_container_3 = y_loading_calibration + 29 - 25
 
-        # choosing between container 1 to 2
-        # for second grid invert selection
-        total_fill = 0
-        if (rows * cols * -extrude) >= max_syringe_vol:
-            total_fill = max_syringe_vol
-        else:
-            total_fill = rows * cols * -extrude
+            # choosing between container 1 to 2
+            # for second grid invert selection
+            total_fill = 0
+            if (rows * cols * -extrude) >= max_syringe_vol:
+                total_fill = max_syringe_vol
+            else:
+                total_fill = rows * cols * -extrude
 
-        loading_syringe(file,loading_container, y_container_4, x_container, container_z_low,
-                        z_high, speed, decent_speed, adcent_speed, refilling_speed, total_fill=total_fill)
+            loading_syringe(file,loading_container, y_container_4, x_container, container_z_low,
+                            z_high, speed, decent_speed, adcent_speed, refilling_speed, total_fill=total_fill)
 
-        # Generate and write the normal grid
-        generate_grid(self, rows, cols, x_shift, y_shift, extrude, grid_x_offset, grid_y_offset,
-                      x_offset, y_offset, z, z_low, z_high, container_z_low, file,
-                      is_cleaning=False, droplet_wait_time=droplet_wait_time,
-                      grid_obj=grid_obj, washing_spot_counter=washing_spot_counter, speed=speed, decent_speed=decent_speed, adcent_speed=adcent_speed
-                    , dispensing_speed=dispensing_speed, refilling_speed=refilling_speed, loading_container=loading_container, y_container_4=y_container_4,
-                    x_abs=x_abs, y_abs=y_abs, x_container=x_container, max_syringe_vol=max_syringe_vol, refill=total_fill)
+            # Generate and write the normal grid
+            generate_grid(self, rows, cols, x_shift, y_shift, extrude, grid_x_offset, grid_y_offset,
+                          x_offset, y_offset, z, z_low, z_high, container_z_low, file,
+                          is_cleaning=False, droplet_wait_time=droplet_wait_time,
+                          grid_obj=grid_obj, washing_spot_counter=washing_spot_counter, speed=speed, decent_speed=decent_speed, adcent_speed=adcent_speed
+                        , dispensing_speed=dispensing_speed, refilling_speed=refilling_speed, loading_container=loading_container, y_container_4=y_container_4,
+                        x_abs=x_abs, y_abs=y_abs, x_container=x_container, max_syringe_vol=max_syringe_vol, refill=total_fill)
 
-        # emptying syringe
-        emptying_syringe(file, emptying_container, y_container_3, 
-                                y_container_4, z_high, x_container, container_z_low, speed, decent_speed, adcent_speed
-                                , dispensing_speed, refilling_speed )
+            # emptying syringe
+            emptying_syringe(file, emptying_container, y_container_3, 
+                                    y_container_4, z_high, x_container, container_z_low, speed, decent_speed, adcent_speed
+                                    , dispensing_speed, refilling_speed )
 
-        e_abs = 0
-        loop_counter = loop_counter + 1
+            e_abs = 0
+            loop_counter = loop_counter + 1
 
-    # presenting build plate
-    file.write('G90 ;absolute positioning\nG0 Y170 F500;present print\n')
-    # end writing
-
-    file.close()
-    if file is None:
-        return
+        # presenting build plate
+        file.write('G90 ;absolute positioning\nG0 Y170 F500;present print\n')
     
-def start_gcode(file, z_high, probe_x = 75, probe_y = 70, speed = 5000, decent_speed = 500, adcent_speed = 5000):
+def start_gcode(file, z_high, probe_x = 75, probe_y = 70, speed = 5000, decent_speed = 500, adcent_speed = 5000, acceptance_square = None):
+    if acceptance_square is None:
+        raise ValueError("acceptance_square bounds must be provided")
     file.write('M110 N0 ; Reset line numbers (VERY IMPORTANT);')
     file.write("\n;TYPE:Custom\nM862.3 P \"MK3\" ; printer model check")
     file.write('\nM406 ; Filament sensor off\nG90 ;use absolute coordinates\nG21 ;unit mm\n')
     file.write('\n;Homing sequence\n')
     file.write(f'G0 Z{z_high} F{adcent_speed} ;Lift Z to prevent scratching and allow leveling\n')
     file.write('G28 X0 Y0 ;Home X and Y\n')
+    file.write(
+        f"G80 XL{acceptance_square['x_left']:.3f} XR{acceptance_square['x_right']:.3f} "
+        f"YB{acceptance_square['y_bottom']:.3f} YT{acceptance_square['y_top']:.3f} ;Home Z with mesh bed leveling inside acceptance square\n"
+    )
     file.write(f'G0 X{probe_x} Y{probe_y} ; Go with probe above vacuum chuck\n')
-    file.write('G28 Z0 ;Home Z\n')
-    file.write('G1 Z0 F300 ')
-    file.write('M117 Calibrate Needle with spacer\n')
-    file.write(f'M0 Calibrate needle with spacer\n')
+    file.write('G1 Z0 F300 \n')
+    file.write('M117 ;Calibrate Needle with spacer\n')
+    file.write(f'M0 ;Calibrate needle with spacer\n')
 
     #file.write('G92 X100 Y100 Z4 E0 ;Set position to origin (allows negative Z movement)\n')
     file.write(f'G0 Z{z_high} F{adcent_speed}\n')
