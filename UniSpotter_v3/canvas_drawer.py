@@ -1,4 +1,3 @@
-import math
 import tkinter as tk
 from SpotterFunctions import read_entries_as_dict
 from input_configs import GLOBAL_FIELDS, GRID_FIELDS, CLEANING_FIELDS, WASHING_FIELDS

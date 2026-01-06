@@ -6,7 +6,7 @@
   "dispense_vol": 0.04,
   "loading_from": "1.0",
   "leftovers_into": "3",
-  "z_adjust": 0.1,
+  "z_contact": 0.1,
   "droplet_forming_time": 0.01,
   "grid_offset_x": 1.0,
   "grid_offset_y": 1.0,

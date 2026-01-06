@@ -94,8 +94,7 @@ def save_file(grid_count, self):
     container_z_low = float(entry_dict['container_z_height'])
     x_loading_calibration = float(entry_dict['container4_x_pos'])
     y_loading_calibration = float(entry_dict['container4_y_pos'])
-    x_offset_abs = x_offset
-    y_offset_abs = y_offset
+
     probe_x = float(entry_dict['probe_x'])
     probe_y = float(entry_dict['probe_y'])
     acceptance_square = _compute_acceptance_square(entry_dict)
@@ -109,8 +108,10 @@ def save_file(grid_count, self):
 
     max_syringe_vol = float(entry_dict['max_syringe_vol'])
 
-    z_high = float(entry_dict['z_movement_pos'])
-    z_probe = float(entry_dict['z_zero_pos'])
+    z_movement_pos_low = float(entry_dict['z_movement_pos_low'])
+    z_movement_pos_high = float(entry_dict['z_movement_pos_high'])
+    syringe_leftovers = [0.0]  # Track net loaded minus dispensed volume
+    
     # code generation
     # creating the coordinates from the intersection between xline and y line which is x and y
     # absolute. From there we start at the initial offset and add the moving step size
@@ -118,7 +119,7 @@ def save_file(grid_count, self):
     # writing into the file
     # start g-code
     with open(filepath, "w") as file:
-        start_gcode(file, z_high, probe_x, probe_y, speed, decent_speed, adcent_speed, acceptance_square)
+        start_gcode(file, z_movement_pos_high, probe_x, probe_y, speed, decent_speed, adcent_speed, acceptance_square)
 
     # movement loop
         washing_spot_counter = [0]  # Use list to track across grid iterations
@@ -137,9 +138,10 @@ def save_file(grid_count, self):
             y_shift = float(grid_entry_dict['pitch_y'])
             extrude = -float(grid_entry_dict['dispense_vol'])
             emptying_container = int(grid_entry_dict['leftovers_into'])
+            
             # z calibrations
-            z = z_probe
-            z_low = z_probe - float(grid_entry_dict['z_adjust'])  # z_low = 4mm - adjustment
+            z_contact = float(grid_entry_dict['z_contact']) 
+
             # waiting time upon which the droplet forms
             droplet_wait_time = float(grid_entry_dict['droplet_forming_time'])
             grid_x_offset = float(grid_entry_dict['grid_offset_x'])
@@ -159,149 +161,253 @@ def save_file(grid_count, self):
             else:
                 total_fill = rows * cols * -extrude
 
-            loading_syringe(file,loading_container, y_container_4, x_container, container_z_low,
-                            z_high, speed, decent_speed, adcent_speed, refilling_speed, total_fill=total_fill)
+            loading_syringe(
+                file,
+                loading_container,
+                y_container_4,
+                x_container,
+                container_z_low,
+                z_movement_pos_high,
+                speed,
+                decent_speed,
+                adcent_speed,
+                refilling_speed,
+                total_fill=total_fill,
+                syringe_tracker=syringe_leftovers,
+            )
 
             # Generate and write the normal grid
-            generate_grid(self, rows, cols, x_shift, y_shift, extrude, grid_x_offset, grid_y_offset,
-                          x_offset, y_offset, z, z_low, z_high, container_z_low, file,
-                          is_cleaning=False, droplet_wait_time=droplet_wait_time,
-                          grid_obj=grid_obj, washing_spot_counter=washing_spot_counter, speed=speed, decent_speed=decent_speed, adcent_speed=adcent_speed
-                        , dispensing_speed=dispensing_speed, refilling_speed=refilling_speed, loading_container=loading_container, y_container_4=y_container_4,
-                        x_abs=x_abs, y_abs=y_abs, x_container=x_container, max_syringe_vol=max_syringe_vol, refill=total_fill)
+            generate_grid(
+                self,
+                rows,
+                cols,
+                x_shift,
+                y_shift,
+                extrude,
+                grid_x_offset,
+                grid_y_offset,
+                x_offset,
+                y_offset,
+                z_contact,
+                z_movement_pos_low,
+                z_movement_pos_high,
+                container_z_low,
+                file,
+                is_cleaning=False,
+                droplet_wait_time=droplet_wait_time,
+                grid_obj=grid_obj,
+                washing_spot_counter=washing_spot_counter,
+                speed=speed,
+                decent_speed=decent_speed,
+                adcent_speed=adcent_speed,
+                dispensing_speed=dispensing_speed,
+                refilling_speed=refilling_speed,
+                loading_container=loading_container,
+                y_container_4=y_container_4,
+                x_abs=x_abs,
+                y_abs=y_abs,
+                x_container=x_container,
+                max_syringe_vol=max_syringe_vol,
+                refill=total_fill,
+                syringe_tracker=syringe_leftovers,
+            )
 
             # emptying syringe
-            emptying_syringe(file, emptying_container, y_container_3, 
-                                    y_container_4, z_high, x_container, container_z_low, speed, decent_speed, adcent_speed
-                                    , dispensing_speed, refilling_speed )
+            emptying_syringe(
+                file,
+                emptying_container,
+                y_container_3,
+                y_container_4,
+                z_movement_pos_high,
+                x_container,
+                container_z_low,
+                speed,
+                decent_speed,
+                adcent_speed,
+                dispensing_speed,
+                refilling_speed,
+                syringe_tracker=syringe_leftovers,
+            )
 
-            e_abs = 0
             loop_counter = loop_counter + 1
 
         # presenting build plate
         file.write('G90 ;absolute positioning\nG0 Y170 F500;present print\n')
     
-def start_gcode(file, z_high, probe_x = 75, probe_y = 70, speed = 5000, decent_speed = 500, adcent_speed = 5000, acceptance_square = None):
+def start_gcode(file, z_movement_pos_high, probe_x = 75, probe_y = 70, speed = 5000, decent_speed = 500, adcent_speed = 5000, acceptance_square = None):
     if acceptance_square is None:
         raise ValueError("acceptance_square bounds must be provided")
     file.write('M110 N0 ; Reset line numbers (VERY IMPORTANT);')
-    file.write("\n;TYPE:Custom\nM862.3 P \"MK3\" ; printer model check")
+    # Match Marlin firmware printer ID to avoid LCD mismatch warnings
+    file.write("\n;TYPE:Custom\nM862.3 P \"MK3S\" ; printer model check")
     file.write('\nM406 ; Filament sensor off\nG90 ;use absolute coordinates\nG21 ;unit mm\n')
     file.write('\n;Homing sequence\n')
-    file.write(f'G0 Z{z_high} F{adcent_speed} ;Lift Z to prevent scratching and allow leveling\n')
+    file.write(f'G0 Z{z_movement_pos_high} F{adcent_speed} ;Lift Z to prevent scratching and allow leveling\n')
+    
     file.write('G28 X0 Y0 ;Home X and Y\n')
+    file.write(f'G0 X{probe_x} Y{probe_y} ; Go with probe above vacuum chuck\n')
+    file.write('G28 Z0 ;Home Z\n')
     file.write(
         f"G80 XL{acceptance_square['x_left']:.3f} XR{acceptance_square['x_right']:.3f} "
         f"YB{acceptance_square['y_bottom']:.3f} YT{acceptance_square['y_top']:.3f} ;Home Z with mesh bed leveling inside acceptance square\n"
     )
     file.write(f'G0 X{probe_x} Y{probe_y} ; Go with probe above vacuum chuck\n')
     file.write('G1 Z0 F300 \n')
-    file.write('M117 ;Calibrate Needle with spacer\n')
-    file.write(f'M0 ;Calibrate needle with spacer\n')
-
-    #file.write('G92 X100 Y100 Z4 E0 ;Set position to origin (allows negative Z movement)\n')
-    file.write(f'G0 Z{z_high} F{adcent_speed}\n')
-    #file.write('G1 E10 F500 ;Prime extruder\nG92 E0\n\n')
-
+    file.write('M117 ;Calibrate Needle to touch substrate\n')
+    file.write('M0 ;Calibrate needle to touch substrate\n')
+    file.write(f'G0 Z{z_movement_pos_high} F{adcent_speed}\n')
+   
     return file
 
 
-def generate_grid(self, rows, cols, x_shift, y_shift, extrude, grid_x_offset, grid_y_offset,
-                  x_offset, y_offset, z, z_low, z_high, container_z_low, file, 
-                  loading_container, y_container_4, x_container, x_abs,y_abs, refill,
-                  is_cleaning=False, droplet_wait_time=0.5, grid_obj=None, washing_spot_counter=None,
-                 speed = 5000, decent_speed = 500, adcent_speed = 5000, dispensing_speed= 500, refilling_speed = 250, max_syringe_vol = 10):
-    """
-    Generic grid generation function for both normal and cleaning grids.
-    
-    Args:
-        rows, cols: Grid dimensions
-        x_shift, y_shift: Step sizes between spots
-        extrude: Extrusion amount (negative for dispensing)
-        grid_x_offset, grid_y_offset: Grid offsets
-        x_offset, y_offset: Base position offsets
-        z: Z height for movement
-        z_low: Z height for spot touching
-        z_high: Z height for safe movement
-        container_z_low: Z height for container liquid access
-        file: File object to write to
-        is_cleaning: Whether this is a cleaning grid (affects some behavior)
-        droplet_wait_time: Wait time for droplet formation (normal grid only)
-        grid_obj: Grid object for accessing washing checkbox and inputs
-        washing_spot_counter: Current spot counter (mutable list to track across calls)
-    
-    Returns:
-        Total number of spots written
-    """
+def generate_grid(
+    self,
+    rows,
+    cols,
+    x_shift,
+    y_shift,
+    extrude,
+    grid_x_offset,
+    grid_y_offset,
+    x_offset,
+    y_offset,
+    z_contact,
+    z_movement_pos_low,
+    z_movement_pos_high,
+    container_z_low,
+    file,
+    loading_container,
+    y_container_4,
+    x_container,
+    x_abs,
+    y_abs,
+    refill,
+    is_cleaning=False,
+    droplet_wait_time=0.5,
+    grid_obj=None,
+    washing_spot_counter=None,
+    speed=5000,
+    decent_speed=500,
+    adcent_speed=5000,
+    dispensing_speed=500,
+    refilling_speed=250,
+    max_syringe_vol=10,
+    syringe_tracker=None,
+):
+    """Generate grid G-code and track syringe volume usage."""
     if washing_spot_counter is None:
         washing_spot_counter = [0]
-    
-    x_offset_start = x_offset
-    y_offset_start = y_offset
-    
-    coordinates = create_coordinates(rows, cols,
-                                     x_offset, grid_x_offset, x_shift,
-                                     y_offset, grid_y_offset, y_shift,
-                                     z)
-    
-    # Disable endstops once at start of grid
-    #file.write("M211 S0 ; disable endstops for grid\n")
+    if syringe_tracker is None:
+        syringe_tracker = [0.0]
+
+    coordinates = create_coordinates(
+        rows,
+        cols,
+        x_offset,
+        grid_x_offset,
+        x_shift,
+        y_offset,
+        grid_y_offset,
+        y_shift,
+        z_movement_pos_low,
+    )
+
     spot_counter = 0
 
-    if grid_obj.cleaning_enabled.get() == True:
-        auto_cleaning(grid_obj, file, x_offset, y_offset, z, z_low, z_high=z_high)
+    if grid_obj.cleaning_enabled.get():
+        auto_cleaning(
+            grid_obj,
+            file,
+            x_offset,
+            y_offset,
+            z_contact,
+            z_movement_pos_low,
+            z_movement_pos_high,
+            syringe_tracker=syringe_tracker,
+        )
 
-    # Write movement sequence
     for i in range(rows * cols):
         line = 'G0 ' + coordinates[i] + f' F{speed}' + '\n'
         file.write(line)
-        # check for beginning of each row
-        remainder = i % cols
-        if remainder == 0:  # if beginning of row add wait to remove oscillations
+
+        if i % cols == 0:
             file.write("G4 S0.2\n")
-        
+
         file.write(f'G1 E{extrude} F{dispensing_speed}\nG92 E0\nG4 S{droplet_wait_time}\n')
-        
-        file.write(f'G0 Z{z_low} F{decent_speed} ;position for liquid contact\n')
-        file.write(f'G0 Z{z} F{adcent_speed}\n')  # Use z variable instead of hardcoded
-        
-        # Track spots for washing
+        syringe_tracker[0] = max(0.0, syringe_tracker[0] - (-extrude))
+
+        file.write(f'G0 Z{z_contact} F{decent_speed} ;position for liquid contact\n')
+        file.write(f'G0 Z{z_movement_pos_low} F{adcent_speed}\n')
+
         washing_spot_counter[0] += 1
-        spot_counter  += 1
-        # Check if refilling the syringe should be triggered
+        spot_counter += 1
+
         if float(spot_counter) * (-extrude) >= max_syringe_vol:
-            #print(spot_counter)
-            file.write(f'G0 Z{z_high} F{adcent_speed}\n')  # Use z variable instead of hardcoded
-            loading_syringe(file,loading_container, y_container_4, x_container, container_z_low, 
-                    z_high, speed, decent_speed, adcent_speed, refilling_speed, total_fill=refill)
+            file.write(f'G0 Z{z_movement_pos_high} F{adcent_speed}\n')
+            loading_syringe(
+                file,
+                loading_container,
+                y_container_4,
+                x_container,
+                container_z_low,
+                z_movement_pos_high,
+                speed,
+                decent_speed,
+                adcent_speed,
+                refilling_speed,
+                total_fill=refill,
+                syringe_tracker=syringe_tracker,
+            )
             file.write(f"G0 X50 Y50 F{speed}")
-            if grid_obj.cleaning_enabled.get() == True:
-                auto_cleaning(grid_obj, file, x_offset, y_offset, z, z_low, z_high=z_high)
-            spot_counter = 0 
-        
-        # Check if washing should be triggered
+            if grid_obj.cleaning_enabled.get():
+                auto_cleaning(
+                    grid_obj,
+                    file,
+                    x_offset,
+                    y_offset,
+                    z_contact,
+                    z_movement_pos_low,
+                    z_movement_pos_high,
+                    syringe_tracker=syringe_tracker,
+                )
+            spot_counter = 0
+
         if not is_cleaning and grid_obj and hasattr(grid_obj, 'washing_enabled'):
-            
             if grid_obj.washing_enabled.get():
                 washing_entry_dict = read_entries_as_dict(grid_obj.washing_entry, WASHING_FIELDS)
                 washing_after_x_spots = int(washing_entry_dict['washing_after_x_spots'])
                 if washing_after_x_spots > 0 and washing_spot_counter[0] % washing_after_x_spots == 0:
-                    #print("washing conditions met")
-                    auto_washing(self, grid_obj, z_high, file)
+                    auto_washing(self, grid_obj, z_movement_pos_high, file)
 
-                    # perform cleaning sequence
-                    if grid_obj.cleaning_enabled.get() == True:
-                        auto_cleaning(grid_obj, file, x_offset, y_offset, z, z_low)
-    
-    # Re-enable endstops after grid
-    #file.write("M211 S1 ; enable endstops\n")
-    
+                    if grid_obj.cleaning_enabled.get():
+                        auto_cleaning(
+                            grid_obj,
+                            file,
+                            x_offset,
+                            y_offset,
+                            z_contact,
+                            z_movement_pos_low,
+                            z_movement_pos_high,
+                            syringe_tracker=syringe_tracker,
+                        )
+
     return rows * cols
 
 
-def loading_syringe(file, loading_container, y_container_4, x_container, container_z_low,
-                     z_high, speed = 5000, decent_speed = 500, adcent_speed = 5000,
-                    refilling_speed = 250, total_fill = 10):
+def loading_syringe(
+    file,
+    loading_container,
+    y_container_4,
+    x_container,
+    container_z_low,
+    z_movement_pos_high,
+    speed=5000,
+    decent_speed=500,
+    adcent_speed=5000,
+    refilling_speed=250,
+    total_fill=10,
+    syringe_tracker=None,
+):
     """
     loading syringe from choosen container
 
@@ -311,18 +417,33 @@ def loading_syringe(file, loading_container, y_container_4, x_container, contain
     file.write(f'G0 X{x_container} Y{y_container_load} F{speed}\n')
     file.write(f'G0 Z{container_z_low}  F{decent_speed}\n')
     file.write(f'G1 E{total_fill+3} F{refilling_speed}; Filling the syringe\n')
-    file.write(f'G4 S2\n')
+    file.write('G4 S2\n')
     file.write('G92 E0\n\n')
     file.write(f'G1 E{-3} F{refilling_speed/2}; Prevent backlash the syringe\n')
-    file.write(f'G4 S2\n')
-    file.write(f'G0 Z{z_high} F{adcent_speed}\n')
+    file.write('G4 S2\n')
+    file.write(f'G0 Z{z_movement_pos_high} F{adcent_speed}\n')
     file.write('G92 E0\n\n')
 
+    if syringe_tracker is not None:
+        syringe_tracker[0] += total_fill
 
 
-def emptying_syringe(file, emptying_container, y_container_3, y_container_4, z_high, x_container, container_z_low, 
-                     speed = 5000, decent_speed = 500, adcent_speed = 5000,
-                     dispensing_speed= 500, refilling_speed = 250):
+
+def emptying_syringe(
+    file,
+    emptying_container,
+    y_container_3,
+    y_container_4,
+    z_movement_pos_high,
+    x_container,
+    container_z_low,
+    speed=5000,
+    decent_speed=500,
+    adcent_speed=5000,
+    dispensing_speed=500,
+    refilling_speed=250,
+    syringe_tracker=None,
+):
     """
     Select container and emptying sequence
     """
@@ -330,14 +451,35 @@ def emptying_syringe(file, emptying_container, y_container_3, y_container_4, z_h
     y_container_emptying, y_container_cleaning = select_cleaning_containers(emptying_container,
                                                                             y_container_3,
                                                                             y_container_4)
-    file.write(f'\nG0 Z{z_high} F{adcent_speed} ; dispensing leftovers\n')
+    file.write(f'\nG0 Z{z_movement_pos_high} F{adcent_speed} ; dispensing leftovers\n')
     file.write(f'G0 X{x_container} Y{y_container_emptying} F{speed}\n')
     file.write(f'G0 Z{container_z_low} F{decent_speed}\n')
-    file.write(f'G1 E-30 F{dispensing_speed}\nG4 S1\n')
-    file.write(f'G0 Z{z_high} F{adcent_speed}\n')
 
-def auto_cleaning(grid_obj, file, x_abs, y_abs, z, z_low, speed = 5000, decent_speed = 500, adcent_speed = 5000,
-                     dispensing_speed= 500, refilling_speed = 250, z_high =40 ):
+    leftovers = 0.0 if syringe_tracker is None else max(0.0, syringe_tracker[0])
+    if leftovers > 0:
+        file.write(f'G1 E{-leftovers:.4f} F{dispensing_speed}\nG4 S1\n')
+        syringe_tracker[0] = 0.0
+    else:
+        file.write('; No syringe leftovers to purge\n')
+
+    file.write(f'G0 Z{z_movement_pos_high} F{adcent_speed}\n')
+
+def auto_cleaning(
+    grid_obj,
+    file,
+    x_abs,
+    y_abs,
+    z_contact,
+    z_movement_pos_low,
+    z_movement_pos_high,
+    speed=5000,
+    decent_speed=500,
+    adcent_speed=5000,
+    dispensing_speed=500,
+    refilling_speed=250,
+    z_high=40,
+    syringe_tracker=None,
+):
     """
     Generate cleaning grid based on cleaning inputs.
     Uses the same logic as the normal grid generation.
@@ -358,8 +500,8 @@ def auto_cleaning(grid_obj, file, x_abs, y_abs, z, z_low, speed = 5000, decent_s
     cleaning_coordinates = create_coordinates(cleaning_rows, cleaning_cols,
                                      x_abs, cleaning_x_offset, cleaning_x_shift,
                                      y_abs, cleaning_y_offset, cleaning_y_shift,
-                                     z)
-    line = 'G0' +f' X{cleaning_x_offset}' + f' Y{cleaning_y_offset}' +f' Z{z_high}'+ f' F{speed}' + '\n'
+                                     z_movement_pos_low)
+    line = 'G0' +f' X{cleaning_x_offset}' + f' Y{cleaning_y_offset}' +f' Z{z_movement_pos_high}'+ f' F{speed}' + '\n'
     file.write(line)
     for i in range(cleaning_rows * cleaning_cols):
         line = 'G0 ' + cleaning_coordinates[i] + f' F{speed}' + '\n'
@@ -370,12 +512,14 @@ def auto_cleaning(grid_obj, file, x_abs, y_abs, z, z_low, speed = 5000, decent_s
             file.write("G4 S0.2\n")
         
         file.write(f'G1 E{cleaning_dispense_vol} F{dispensing_speed}\nG92 E0\nG4 S0.2\n')
+        if syringe_tracker is not None:
+            syringe_tracker[0] = max(0.0, syringe_tracker[0] - (-cleaning_dispense_vol))
         
-        file.write(f'G0 Z{z_low} F{decent_speed} ;position for liquid contact\n')
-        file.write(f'G0 Z{z} F{adcent_speed}\n')  # Use z variable instead of hardcoded
+        file.write(f'G0 Z{z_contact} F{decent_speed} ;position for liquid contact\n')
+        file.write(f'G0 Z{z_movement_pos_low} F{adcent_speed}\n')  
 
 
-def auto_washing(self,grid_obj, z_high, file, speed = 5000, decent_speed = 500, adcent_speed = 5000,
+def auto_washing(self,grid_obj, z_movement_pos_high, file, speed = 5000, decent_speed = 500, adcent_speed = 5000,
                      dispensing_speed= 500, refilling_speed = 250):
     """
     Generate washing sequence with up/down needle movement.
@@ -403,7 +547,7 @@ def auto_washing(self,grid_obj, z_high, file, speed = 5000, decent_speed = 500, 
     file.write("\n; Washing sequence\n")
     
     # Move to safe height
-    file.write(f'G0 Z{z_high} F{adcent_speed}\n')
+    file.write(f'G0 Z{z_movement_pos_high} F{adcent_speed}\n')
     
     # Move to washing column position with offset
     file.write(f'G0 X{x_abs+washing_x_pos} Y{y_abs+washing_y_pos} F{speed}\n')
@@ -419,5 +563,5 @@ def auto_washing(self,grid_obj, z_high, file, speed = 5000, decent_speed = 500, 
         file.write(f'G0 X{x_abs+washing_x_pos} F{washing_speed}\n')
 
     # Return to safe height
-    file.write(f'G0 Z{z_high} F{adcent_speed}\n')
+    file.write(f'G0 Z{z_movement_pos_high} F{adcent_speed}\n')
     file.write('G0 X50 Y50 F5000\n')

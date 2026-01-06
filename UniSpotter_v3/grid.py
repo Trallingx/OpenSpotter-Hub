@@ -1,9 +1,8 @@
-from gui_v3 import *
-from SpotterFunctions import *
+import json
+import os
 from input_configs import GRID_FIELDS, CLEANING_FIELDS, WASHING_FIELDS
 import tkinter as tk
 import tkinter.ttk as ttk
-import logging
 
 
 class Grid(object):

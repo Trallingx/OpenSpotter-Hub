@@ -1,13 +1,15 @@
 import os
-from tkinter import *
-from tkinter import filedialog, messagebox
+
+from tkinter import messagebox
 import tkinter as tk
-from tkinter.ttk import *
+from tkinter.ttk import Notebook, Style, Label
 from PIL import ImageTk, Image
 
 
-from grid import *
-from create_gcode import *
+from SpotterFunctions import entries_to_dict, read_entries, save_defaults, write_state
+from input_configs import CLEANING_FIELDS, GLOBAL_FIELDS, GRID_FIELDS, WASHING_FIELDS
+from grid import Grid
+from create_gcode import generate_anchor_calibration, save_file
 from canvas_drawer import CanvasDrawer
 
 # Modern Color Scheme
