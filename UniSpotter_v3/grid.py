@@ -184,7 +184,8 @@ def create_labels(fields, defaults, entries, input_frame,
             frame = tk.Frame(notebook, bg='#3a3a4e', relief='flat', bd=1, highlightbackground='#555566', highlightthickness=1)
             for col in range(3):
                 frame.columnconfigure(col, weight=1 if col == 1 else 0)
-            frame.rowconfigure(0, weight=1)
+            # Keep the first rows unstretched so inputs stay at the top
+            frame.rowconfigure(0, weight=0)
             notebook.add(frame, text=tab_name)
             tab_frames[tab_name] = frame
             row_map[tab_name] = start_row

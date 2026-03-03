@@ -136,23 +136,10 @@ class DropletGui(tk.Tk):
         canvas_controls_frame = tk.Frame(self.canvas_frame, bg=COLORS['bg_secondary'])
         canvas_controls_frame.grid(row=2, column=0, sticky='ew', padx=8, pady=(0, 8))
 
-        # Interaction hint and manual refresh
+        # Interaction hint
         hint = tk.Label(canvas_controls_frame, text='Scroll to zoom • Drag to pan', font=FONTS['small'],
                         fg=COLORS['text_secondary'], bg=COLORS['bg_secondary'])
         hint.pack(side='left', padx=(0, 5), pady=2)
-
-        def _manual_refresh():
-            try:
-                if hasattr(self, 'canvas_drawer') and self.canvas_drawer is not None:
-                    self.canvas_drawer.refresh()
-            except Exception:
-                pass
-
-        update_btn = tk.Button(canvas_controls_frame, text='Update canvas', command=_manual_refresh,
-                              bg=COLORS['accent'], fg=COLORS['bg_primary'], font=FONTS['small'],
-                              relief='flat', bd=0, padx=8, pady=4, cursor='hand2',
-                              activebackground=COLORS['alt_accent'], activeforeground=COLORS['bg_primary'])
-        update_btn.pack(fill='x', padx=5, pady=(5, 5))
 
         # ---- Build plate buttons frame (row 1) - moved below global config in right frame ----
         self.info_button_frame = tk.Frame(self.middle_frame, bg=COLORS['bg_secondary'], relief='flat', bd=1, highlightbackground=COLORS['border'], highlightthickness=1)
@@ -460,7 +447,7 @@ class DropletGui(tk.Tk):
 
 
     def adding_pictures(self):
-        image = Image.open(os.path.join(self.config_dir, "buildplate.png"))
+        image = Image.open(os.path.join(self.config_dir, "BasePlate.png"))
         resized_image = image.resize((200*2, 170*2))
         photo = ImageTk.PhotoImage(resized_image)
 

@@ -1,8 +1,7 @@
 from tkinter import filedialog
 from SpotterFunctions import read_entries_as_dict
 from SpotterFunctions import create_coordinates
-from SpotterFunctions import select_loading_container
-from SpotterFunctions import select_cleaning_containers
+from SpotterFunctions import build_containers
 from input_configs import GLOBAL_FIELDS, GRID_FIELDS, WASHING_FIELDS, CLEANING_FIELDS
 
 
@@ -91,9 +90,7 @@ def save_file(grid_count, self):
     y_abs = float(entry_dict['y_cord_of_x_line'])
     y_offset = y_abs + float(entry_dict['tuning_offset_y'])
     x_offset = x_abs + float(entry_dict['tuning_offset_x'])
-    container_z_low = float(entry_dict['container_z_height'])
-    x_loading_calibration = float(entry_dict['container4_x_pos'])
-    y_loading_calibration = float(entry_dict['container4_y_pos'])
+    containers = build_containers(entry_dict)
 
     probe_x = float(entry_dict['probe_x'])
     probe_y = float(entry_dict['probe_y'])
@@ -137,7 +134,6 @@ def save_file(grid_count, self):
             x_shift = float(grid_entry_dict['pitch_x'])
             y_shift = float(grid_entry_dict['pitch_y'])
             extrude = -float(grid_entry_dict['dispense_vol'])
-            emptying_container = int(grid_entry_dict['leftovers_into'])
             
             # z calibrations
             z_contact = float(grid_entry_dict['z_contact']) 
@@ -148,10 +144,20 @@ def save_file(grid_count, self):
             grid_y_offset = float(grid_entry_dict['grid_offset_y'])
 
             # filling the syringe
-            loading_container = int(grid_entry_dict['loading_from'])
-            x_container = x_loading_calibration
-            y_container_4 = y_loading_calibration
-            y_container_3 = y_loading_calibration + 29 - 25
+            loading_container_id = int(grid_entry_dict['loading_from'])
+            emptying_container_id = int(grid_entry_dict['leftovers_into'])
+
+            if not (1 <= loading_container_id <= 6):
+                raise ValueError("Loading container must be an integer between 1 and 6")
+            if not (1 <= emptying_container_id <= 6):
+                raise ValueError("Leftovers container must be an integer between 1 and 6")
+            loading_container = containers.get(loading_container_id)
+            emptying_container = containers.get(emptying_container_id)
+
+            if loading_container is None:
+                raise ValueError(f"Container {loading_container_id} is not configured for loading")
+            if emptying_container is None:
+                raise ValueError(f"Container {emptying_container_id} is not configured for emptying")
 
             # choosing between container 1 to 2
             # for second grid invert selection
@@ -164,9 +170,6 @@ def save_file(grid_count, self):
             loading_syringe(
                 file,
                 loading_container,
-                y_container_4,
-                x_container,
-                container_z_low,
                 z_movement_pos_high,
                 speed,
                 decent_speed,
@@ -191,7 +194,7 @@ def save_file(grid_count, self):
                 z_contact,
                 z_movement_pos_low,
                 z_movement_pos_high,
-                container_z_low,
+                containers,
                 file,
                 is_cleaning=False,
                 droplet_wait_time=droplet_wait_time,
@@ -202,11 +205,7 @@ def save_file(grid_count, self):
                 adcent_speed=adcent_speed,
                 dispensing_speed=dispensing_speed,
                 refilling_speed=refilling_speed,
-                loading_container=loading_container,
-                y_container_4=y_container_4,
-                x_abs=x_abs,
-                y_abs=y_abs,
-                x_container=x_container,
+                loading_container=loading_container_id,
                 max_syringe_vol=max_syringe_vol,
                 refill=total_fill,
                 syringe_tracker=syringe_leftovers,
@@ -216,11 +215,7 @@ def save_file(grid_count, self):
             emptying_syringe(
                 file,
                 emptying_container,
-                y_container_3,
-                y_container_4,
                 z_movement_pos_high,
-                x_container,
-                container_z_low,
                 speed,
                 decent_speed,
                 adcent_speed,
@@ -244,14 +239,14 @@ def start_gcode(file, z_movement_pos_high, probe_x = 75, probe_y = 70, speed = 5
     file.write('\n;Homing sequence\n')
     file.write(f'G0 Z{z_movement_pos_high} F{adcent_speed} ;Lift Z to prevent scratching and allow leveling\n')
     
-    file.write('G28 X0 Y0 ;Home X and Y\n')
-    file.write(f'G0 X{probe_x} Y{probe_y} ; Go with probe above vacuum chuck\n')
-    file.write('G28 Z0 ;Home Z\n')
+    file.write('G28 ;Home\n')
+    file.write('Z_SMASH_ALIGN \n')
+    file.write(f'G0 X{probe_x} Y{probe_y} F{speed} ; Go with probe above vacuum chuck\n')
     file.write(
-        f"G80 XL{acceptance_square['x_left']:.3f} XR{acceptance_square['x_right']:.3f} "
-        f"YB{acceptance_square['y_bottom']:.3f} YT{acceptance_square['y_top']:.3f} ;Home Z with mesh bed leveling inside acceptance square\n"
+        f"MESH X_MIN={acceptance_square['x_left']:.3f} X_MAX={acceptance_square['x_right']:.3f} "
+        f"Y_MIN={acceptance_square['y_bottom']:.3f} Y_MAX={acceptance_square['y_top']:.3f} POINTS=3 ;Home Z with mesh bed leveling inside acceptance square\n"
     )
-    file.write(f'G0 X{probe_x} Y{probe_y} ; Go with probe above vacuum chuck\n')
+    file.write(f'G0 X{probe_x} Y{probe_y} F{speed}; Go with probe above vacuum chuck\n')
     file.write('G1 Z0 F300 \n')
     file.write('M117 ;Calibrate Needle to touch substrate\n')
     file.write('M0 ;Calibrate needle to touch substrate\n')
@@ -274,13 +269,9 @@ def generate_grid(
     z_contact,
     z_movement_pos_low,
     z_movement_pos_high,
-    container_z_low,
+    containers,
     file,
     loading_container,
-    y_container_4,
-    x_container,
-    x_abs,
-    y_abs,
     refill,
     is_cleaning=False,
     droplet_wait_time=0.5,
@@ -314,6 +305,10 @@ def generate_grid(
 
     spot_counter = 0
 
+    loading_container_obj = containers.get(loading_container)
+    if loading_container_obj is None:
+        raise ValueError(f"Missing configuration for container {loading_container}")
+
     if grid_obj.cleaning_enabled.get():
         auto_cleaning(
             grid_obj,
@@ -346,10 +341,7 @@ def generate_grid(
             file.write(f'G0 Z{z_movement_pos_high} F{adcent_speed}\n')
             loading_syringe(
                 file,
-                loading_container,
-                y_container_4,
-                x_container,
-                container_z_low,
+                loading_container_obj,
                 z_movement_pos_high,
                 speed,
                 decent_speed,
@@ -396,10 +388,7 @@ def generate_grid(
 
 def loading_syringe(
     file,
-    loading_container,
-    y_container_4,
-    x_container,
-    container_z_low,
+    container,
     z_movement_pos_high,
     speed=5000,
     decent_speed=500,
@@ -409,13 +398,14 @@ def loading_syringe(
     syringe_tracker=None,
 ):
     """
-    loading syringe from choosen container
+    loading syringe from chosen container
 
     """
-    y_container_load = select_loading_container(loading_container, y_container_4)
+    if container is None:
+        raise ValueError("Loading container is not configured")
 
-    file.write(f'G0 X{x_container} Y{y_container_load} F{speed}\n')
-    file.write(f'G0 Z{container_z_low}  F{decent_speed}\n')
+    file.write(f'G0 X{container.x} Y{container.y} F{speed}\n')
+    file.write(f'G0 Z{container.z_filling_height}  F{decent_speed}\n')
     file.write(f'G1 E{total_fill+3} F{refilling_speed}; Filling the syringe\n')
     file.write('G4 S2\n')
     file.write('G92 E0\n\n')
@@ -431,12 +421,8 @@ def loading_syringe(
 
 def emptying_syringe(
     file,
-    emptying_container,
-    y_container_3,
-    y_container_4,
+    container,
     z_movement_pos_high,
-    x_container,
-    container_z_low,
     speed=5000,
     decent_speed=500,
     adcent_speed=5000,
@@ -447,13 +433,11 @@ def emptying_syringe(
     """
     Select container and emptying sequence
     """
-    print(emptying_container)
-    y_container_emptying, y_container_cleaning = select_cleaning_containers(emptying_container,
-                                                                            y_container_3,
-                                                                            y_container_4)
+    if container is None:
+        raise ValueError("Emptying container is not configured")
     file.write(f'\nG0 Z{z_movement_pos_high} F{adcent_speed} ; dispensing leftovers\n')
-    file.write(f'G0 X{x_container} Y{y_container_emptying} F{speed}\n')
-    file.write(f'G0 Z{container_z_low} F{decent_speed}\n')
+    file.write(f'G0 X{container.x} Y{container.y} F{speed}\n')
+    file.write(f'G0 Z{container.z_filling_height} F{decent_speed}\n')
 
     leftovers = 0.0 if syringe_tracker is None else max(0.0, syringe_tracker[0])
     if leftovers > 0:

@@ -40,6 +40,7 @@ class CanvasDrawer:
     def _collect_data(self):
         global_vals = read_entries_as_dict(self.gui.entry, GLOBAL_FIELDS)
         grids, cleaning_grids, washing_data = [], [], []
+        containers = []
 
         for idx in range(1, 4):
             grid_obj = getattr(self.gui, f'grid_{idx}', None)
@@ -55,11 +56,20 @@ class CanvasDrawer:
                     vals_wash = read_entries_as_dict(grid_obj.washing_entry, WASHING_FIELDS)
                     washing_data.append((idx, vals_wash))
 
+        for idx in range(1, 7):
+            try:
+                cx = float(global_vals.get(f'container{idx}_x', 0))
+                cy = float(global_vals.get(f'container{idx}_y', 0))
+                containers.append((idx, cx, cy))
+            except Exception:
+                continue
+
         return {
             'global': global_vals,
             'grids': grids,
             'cleaning_grids': cleaning_grids,
-            'washing_data': washing_data
+            'washing_data': washing_data,
+            'containers': containers,
         }
 
     def draw(self, snapshot):
@@ -71,6 +81,7 @@ class CanvasDrawer:
         grids_list = snapshot.get('grids', [])
         cleaning_grids_list = snapshot.get('cleaning_grids', [])
         washing_data_list = snapshot.get('washing_data', [])
+        container_list = snapshot.get('containers', [])
 
         if not global_vals:
             return
@@ -88,7 +99,7 @@ class CanvasDrawer:
         grey_h = float(global_vals.get('grey_square_y', 0))
         anchor_off_x = float(global_vals.get('anchor_offset_x', -30))
         anchor_off_y = float(global_vals.get('anchor_offset_y', -40))
-        purple_size = 250.0
+        purple_size = 225
 
         # --- Collect points and grid extents ---
         points = []
@@ -125,8 +136,8 @@ class CanvasDrawer:
         purple_x2 = purple_x1 + purple_size
         purple_y2 = purple_y1 + purple_size
 
-        xs = ([p[0] for p in points] if points else []) + [x_abs, x_abs + rect_w, purple_x1, purple_x2]
-        ys = ([p[1] for p in points] if points else []) + [y_abs, y_abs + rect_h, purple_y1, purple_y2]
+        xs = ([p[0] for p in points] if points else []) + [x_abs, x_abs + rect_w, purple_x1, purple_x2] + [c[1] for c in container_list]
+        ys = ([p[1] for p in points] if points else []) + [y_abs, y_abs + rect_h, purple_y1, purple_y2] + [c[2] for c in container_list]
         minx, maxx = min(xs), max(xs)
         miny, maxy = min(ys), max(ys)
 
@@ -170,8 +181,15 @@ class CanvasDrawer:
         # --- Background ---
         self.canvas.create_rectangle(0, 0, c_w, c_h, fill='white', outline='')
 
+        # --- Draw fixed 250x250 orange square anchored by user offsets, labeled 0,0 (behind other overlays) ---
+        orange_px1 = anchor_px_base + (purple_x1 - x_abs) * effective_scale
+        orange_py1 = anchor_py_base - (purple_y1 - y_abs) * effective_scale
+        orange_px2 = orange_px1 + purple_size * effective_scale
+        orange_py2 = orange_py1 - purple_size * effective_scale
+        self.canvas.create_rectangle(orange_px1, orange_py1, orange_px2, orange_py2, outline='orange', fill='orange', width=3)
+        self.canvas.create_text(orange_px1 + 6, orange_py1 - 6, text="0,0", anchor='sw', fill='black', font=("Segoe UI", 10, 'bold'))
+
         # --- Draw grey rectangle (centered) ---
-        self.canvas.create_rectangle(0, 0, c_w, c_h, fill='white', outline='')
         grey_x = anchor_px_base + ((x_abs + (rect_w - grey_w)/2) - x_abs) * effective_scale
         grey_y = anchor_py_base - ((y_abs + (rect_h - grey_h)/2) - y_abs) * effective_scale
         self.canvas.create_rectangle(
@@ -191,18 +209,48 @@ class CanvasDrawer:
             fill='white', outline='darkgreen', width=2
         )
 
+        # --- Anchor guide lines ---
+        def world_to_canvas(wx, wy):
+            px = (wx - self._origin_x) * effective_scale + self._pan_x
+            py = c_h - ((wy - self._origin_y) * effective_scale + self._pan_y)
+            return px, py
+
+        # primary anchors
+        x_line = x_abs
+        y_line = y_abs
+
+        # vertical line for x_cord_of_y_line (green)
+        px1, py1 = world_to_canvas(x_line, miny)
+        px2, py2 = world_to_canvas(x_line, maxy)
+        self.canvas.create_line(px1, py1, px2, py2, fill='green', width=2)
+
+        # horizontal line for y_cord_of_x_line (red)
+        px1, py1 = world_to_canvas(minx, y_line)
+        px2, py2 = world_to_canvas(maxx, y_line)
+        self.canvas.create_line(px1, py1, px2, py2, fill='red', width=2)
+
         # --- Draw outer black rectangle ---
         black_x1, black_y1 = anchor_px_base, anchor_py_base
         black_x1, black_y1 = anchor_px_base, anchor_py_base
         black_x2, black_y2 = black_x1 + rect_w * effective_scale, black_y1 - rect_h * effective_scale
         self.canvas.create_rectangle(black_x1, black_y1, black_x2, black_y2, outline='black', width=2)
 
-        # --- Draw fixed 250x250 purple square anchored by user offsets ---
-        purple_px1 = anchor_px_base + (purple_x1 - x_abs) * effective_scale
-        purple_py1 = anchor_py_base - (purple_y1 - y_abs) * effective_scale
-        purple_px2 = purple_px1 + purple_size * effective_scale
-        purple_py2 = purple_py1 - purple_size * effective_scale
-        self.canvas.create_rectangle(purple_px1, purple_py1, purple_px2, purple_py2, outline='#8000ff', width=3)
+        # --- Draw containers as circles with labels ---
+        circle_mm_radius = 6.0
+        for idx, cx, cy in container_list:
+            px = (cx - self._origin_x) * effective_scale + self._pan_x
+            py = c_h - ((cy - self._origin_y) * effective_scale + self._pan_y)
+            rad_px = max(2, circle_mm_radius * effective_scale)
+            self.canvas.create_oval(
+                px - rad_px,
+                py - rad_px,
+                px + rad_px,
+                py + rad_px,
+                outline='black',
+                width=2,
+                fill='#f8f8f8'
+            )
+            self.canvas.create_text(px, py, text=str(idx), fill='black', font=("Segoe UI", 10, 'bold'))
 
         # --- Map dispense volume to diameter ---
         try:
@@ -264,12 +312,7 @@ class CanvasDrawer:
 
             self.canvas.create_line(px_left, py, px_right, py, width=3, fill='cyan')
 
-        # --- Draw fixed 250x250 purple square anchored by user offsets ---
-        purple_px1 = (purple_x1 - self._origin_x) * effective_scale + self._pan_x
-        purple_py1 = c_h - ((purple_y1 - self._origin_y) * effective_scale + self._pan_y)
-        purple_px2 = purple_px1 + purple_size * effective_scale
-        purple_py2 = purple_py1 - purple_size * effective_scale
-        self.canvas.create_rectangle(purple_px1, purple_py1, purple_px2, purple_py2, outline='#8000ff', width=3)
+        # (Removed duplicate purple square draw; orange square is already drawn near the background layer.)
 
     def _on_mousewheel(self, event):
         try:
