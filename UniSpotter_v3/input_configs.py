@@ -30,6 +30,7 @@ GLOBAL_FIELDS: List[Field] = [
     Field("tuning_offset_y", "First Spot Y-offset", "mm", tab="Offsets & Squares"),
     Field("acceptance_square_x", "Acceptance Square X", "mm", tab="Offsets & Squares"),
     Field("acceptance_square_y", "Acceptance Square Y", "mm", tab="Offsets & Squares"),
+    Field("mesh_points", "Mesh Points", "3 to 10", tab="Offsets & Squares"),
     Field("base_square_x", "Base Square X", "mm", tab="Offsets & Squares"),
     Field("base_square_y", "Base Square Y", "mm", tab="Offsets & Squares"),
     Field("grey_square_x", "Grey Square X", "mm", tab="Offsets & Squares"),

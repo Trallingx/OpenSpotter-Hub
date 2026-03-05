@@ -95,6 +95,7 @@ def save_file(grid_count, self):
     probe_x = float(entry_dict['probe_x'])
     probe_y = float(entry_dict['probe_y'])
     acceptance_square = _compute_acceptance_square(entry_dict)
+    mesh_points = int(entry_dict['mesh_points'])
 
     speed = float(entry_dict['movement_speed'])
     decent_speed = float(entry_dict['decent_speed'])
@@ -116,7 +117,7 @@ def save_file(grid_count, self):
     # writing into the file
     # start g-code
     with open(filepath, "w") as file:
-        start_gcode(file, z_movement_pos_high, probe_x, probe_y, speed, decent_speed, adcent_speed, acceptance_square)
+        start_gcode(file, z_movement_pos_high, probe_x, probe_y, speed, decent_speed, adcent_speed, acceptance_square, mesh_points)
 
     # movement loop
         washing_spot_counter = [0]  # Use list to track across grid iterations
@@ -229,27 +230,43 @@ def save_file(grid_count, self):
         # presenting build plate
         file.write('G90 ;absolute positioning\nG0 Y170 F500;present print\n')
     
-def start_gcode(file, z_movement_pos_high, probe_x = 75, probe_y = 70, speed = 5000, decent_speed = 500, adcent_speed = 5000, acceptance_square = None):
+def start_gcode(file, z_movement_pos_high, probe_x = 75, probe_y = 70, speed = 5000, decent_speed = 500, adcent_speed = 5000, acceptance_square = None, mesh_points = 3):
     if acceptance_square is None:
         raise ValueError("acceptance_square bounds must be provided")
-    file.write('M110 N0 ; Reset line numbers (VERY IMPORTANT);')
-    # Match Marlin firmware printer ID to avoid LCD mismatch warnings
-    file.write("\n;TYPE:Custom\nM862.3 P \"MK3S\" ; printer model check")
-    file.write('\nM406 ; Filament sensor off\nG90 ;use absolute coordinates\nG21 ;unit mm\n')
-    file.write('\n;Homing sequence\n')
-    file.write(f'G0 Z{z_movement_pos_high} F{adcent_speed} ;Lift Z to prevent scratching and allow leveling\n')
     
-    file.write('G28 ;Home\n')
-    file.write('Z_SMASH_ALIGN \n')
-    file.write(f'G0 X{probe_x} Y{probe_y} F{speed} ; Go with probe above vacuum chuck\n')
+    # Start G-code with homing
+    file.write('\nG90 ;use absolute coordinates\nG21 ;unit mm\n')
+    file.write('\n;Homing sequence\n')
+    file.write('M117 Gantry Align\n')
+    file.write('G28 Z0 ;Home Z\n')
+    file.write('G28 X0 Y0 ;Home X Y\n')
+
+
+    # Manual Z tilt compensation with ramming
+    file.write(f'G0 X{probe_x} Y{probe_y} F{speed} ; Go with Head to probe position\n')
+    # Disable stall detection temporarily (prevents retrigger)
+    file.write('SET_TMC_FIELD STEPPER=stepper_z FIELD=SGT VALUE=0\n')
+    file.write('G91 ;use relative coordinates\n')
+    file.write('G0 Z10 F300 ; Ram into top\n')
+    file.write('G90 ;use absolute coordinates\n')
+    # Enable stall detection 
+    file.write('SET_TMC_FIELD STEPPER=stepper_z FIELD=SGT VALUE=4\n')
+    file.write('G28 Z0; Home Z again\n')
+    file.write('M117 Aligned\n')
+
+    #Mesh bed leveling within acceptance square to compensate for any remaining tilt and ensure proper Z=0 calibration across the print area. Uses the computed acceptance square bounds and mesh points from global inputs.
     file.write(
         f"MESH X_MIN={acceptance_square['x_left']:.3f} X_MAX={acceptance_square['x_right']:.3f} "
-        f"Y_MIN={acceptance_square['y_bottom']:.3f} Y_MAX={acceptance_square['y_top']:.3f} POINTS=3 ;Home Z with mesh bed leveling inside acceptance square\n"
+        f"Y_MIN={acceptance_square['y_bottom']:.3f} Y_MAX={acceptance_square['y_top']:.3f} POINTS={mesh_points} ;Home Z with mesh bed leveling inside acceptance square\n"
     )
+
+    # Homing Syringe
     file.write(f'G0 X{probe_x} Y{probe_y} F{speed}; Go with probe above vacuum chuck\n')
+    file.write('HOME_SYRINGE\n')
+    file.write('DISPENSE VOLUME=1 \n')
     file.write('G1 Z0 F300 \n')
     file.write('M117 ;Calibrate Needle to touch substrate\n')
-    file.write('M0 ;Calibrate needle to touch substrate\n')
+    file.write('PAUSE\n')
     file.write(f'G0 Z{z_movement_pos_high} F{adcent_speed}\n')
    
     return file
@@ -328,7 +345,7 @@ def generate_grid(
         if i % cols == 0:
             file.write("G4 S0.2\n")
 
-        file.write(f'G1 E{extrude} F{dispensing_speed}\nG92 E0\nG4 S{droplet_wait_time}\n')
+        file.write(f'DISPENSE VOLUME={extrude} F{dispensing_speed}\nG4 S{droplet_wait_time}\n')
         syringe_tracker[0] = max(0.0, syringe_tracker[0] - (-extrude))
 
         file.write(f'G0 Z{z_contact} F{decent_speed} ;position for liquid contact\n')
@@ -406,10 +423,10 @@ def loading_syringe(
 
     file.write(f'G0 X{container.x} Y{container.y} F{speed}\n')
     file.write(f'G0 Z{container.z_filling_height}  F{decent_speed}\n')
-    file.write(f'G1 E{total_fill+3} F{refilling_speed}; Filling the syringe\n')
+    file.write(f'DISPENSE VOLUME={total_fill+3} F{refilling_speed}; Filling the syringe\n')
     file.write('G4 S2\n')
     file.write('G92 E0\n\n')
-    file.write(f'G1 E{-3} F{refilling_speed/2}; Prevent backlash the syringe\n')
+    file.write(f'DISPENSE VOLUME={-3} F{refilling_speed/2}; Prevent backlash the syringe\n')
     file.write('G4 S2\n')
     file.write(f'G0 Z{z_movement_pos_high} F{adcent_speed}\n')
     file.write('G92 E0\n\n')
@@ -441,7 +458,7 @@ def emptying_syringe(
 
     leftovers = 0.0 if syringe_tracker is None else max(0.0, syringe_tracker[0])
     if leftovers > 0:
-        file.write(f'G1 E{-leftovers:.4f} F{dispensing_speed}\nG4 S1\n')
+        file.write(f'DISPENSE VOLUME={-leftovers:.4f} F{dispensing_speed}\nG4 S1\n')
         syringe_tracker[0] = 0.0
     else:
         file.write('; No syringe leftovers to purge\n')
@@ -495,7 +512,7 @@ def auto_cleaning(
         if remainder == 0:  # if beginning of row add wait to remove oscillations
             file.write("G4 S0.2\n")
         
-        file.write(f'G1 E{cleaning_dispense_vol} F{dispensing_speed}\nG92 E0\nG4 S0.2\n')
+        file.write(f'DISPENSE VOLUME={cleaning_dispense_vol} F{dispensing_speed}\nG92 E0\nG4 S0.2\n')
         if syringe_tracker is not None:
             syringe_tracker[0] = max(0.0, syringe_tracker[0] - (-cleaning_dispense_vol))
         
