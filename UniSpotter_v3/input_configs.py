@@ -66,6 +66,7 @@ GLOBAL_FIELDS: List[Field] = [
     Field("dispensing_speed", "Dispensing Speed", "mm", tab="Fluids"),
     Field("refilling_speed", "Refilling Speed", "mm", tab="Fluids"),
     Field("max_syringe_vol", "Maximum Syringe Volume", "uL", tab="Fluids"),
+    Field("priming_vol", "Priming Volume", "uL", default=3.0, tab="Fluids"),
 ]
 
 

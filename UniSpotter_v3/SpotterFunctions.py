@@ -10,6 +10,20 @@ class Container:
     z_filling_height: float
 
 
+def volume_to_mm(volume_ul):
+    """
+    Convert volume in microliters (uL) to stepper motor position in millimeters (mm).
+    Conversion: 1 uL = 5 mm
+    
+    Args:
+        volume_ul: Volume in microliters
+        
+    Returns:
+        Position in millimeters for stepper motor
+    """
+    return volume_ul * 5.0
+
+
 def read_defaults(file):
     with open(file, "r") as f:
         data = json.load(f)
@@ -68,8 +82,7 @@ def entries_to_dict(entries, fields):
 
 def create_coordinates(rows, cols,
                        x_offset, grid_x_offset, x_shift,
-                       y_offset, grid_y_offset, y_shift,
-                       z):
+                       y_offset, grid_y_offset, y_shift):
     index = 0
     coordinates_grid = ['0' for _ in range(cols * rows)]
     x_offset_abs = x_offset + grid_x_offset
@@ -77,7 +90,7 @@ def create_coordinates(rows, cols,
     y_offset = y_offset + grid_y_offset
     for j in range(rows):
         for i in range(cols):
-            coordinates_grid[index] = f'X{x_offset} Y{y_offset} Z{z}'
+            coordinates_grid[index] = f'X{x_offset} Y{y_offset}'
             x_offset = x_offset + x_shift
             index = index + 1
         x_offset = x_offset_abs
