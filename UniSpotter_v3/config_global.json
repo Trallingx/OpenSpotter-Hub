@@ -3,8 +3,8 @@
   "y_cord_of_x_line": 21.0,
   "anchor_offset_x": -15.0,
   "anchor_offset_y": -15.0,
-  "tuning_offset_x": 30.0,
-  "tuning_offset_y": 30.0,
+  "tuning_offset_x": 15.0,
+  "tuning_offset_y": 15.0,
   "acceptance_square_x": 160.0,
   "acceptance_square_y": 160.0,
   "mesh_points": "3",
@@ -14,7 +14,7 @@
   "grey_square_y": 176.0,
   "container1_x": 15.0,
   "container1_y": 209.0,
-  "container1_z": 5.0,
+  "container1_z": -5.0,
   "container2_x": 65.0,
   "container2_y": 209.0,
   "container2_z": 5.0,
@@ -39,6 +39,6 @@
   "adcent_speed": 5000.0,
   "dispensing_speed": 10.0,
   "refilling_speed": 10.0,
-  "max_syringe_vol": 10.0,
-  "priming_vol": 0.1
+  "max_syringe_vol": 9.0,
+  "priming_vol": 1.0
 }
