@@ -100,6 +100,15 @@ class Grid(object):
         config_path = os.path.join(self.config_dir, config)
         with open(config_path, "r") as f:
             grid_defaults = json.load(f)
+
+        def _to_bool(value, default=False):
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, (int, float)):
+                return value != 0
+            if isinstance(value, str):
+                return value.strip().lower() in ("1", "true", "yes", "on")
+            return default
         
         create_labels(
             GRID_FIELDS,
@@ -110,7 +119,9 @@ class Grid(object):
             )
 
         # Add checkbox to enable/disable cleaning grid at row 1
-        self.cleaning_enabled = tk.BooleanVar(value=False)
+        self.cleaning_enabled = tk.BooleanVar(
+            value=_to_bool(grid_defaults.get("cleaning_enabled", False))
+        )
         cleaning_checkbox = tk.Checkbutton(
             self.cleaning_input_frame,
             text="Enable Cleaning Grid",
@@ -133,7 +144,9 @@ class Grid(object):
         )
         
         # Add checkbox to enable/disable washing needle at row 10 (after cleaning inputs)
-        self.washing_enabled = tk.BooleanVar(value=False)
+        self.washing_enabled = tk.BooleanVar(
+            value=_to_bool(grid_defaults.get("washing_enabled", False))
+        )
         washing_checkbox = tk.Checkbutton(
             self.cleaning_input_frame,
             text="Enable Washing Needle",

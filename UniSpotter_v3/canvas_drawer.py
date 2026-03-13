@@ -42,8 +42,7 @@ class CanvasDrawer:
         grids, cleaning_grids, washing_data = [], [], []
         containers = []
 
-        for idx in range(1, 4):
-            grid_obj = getattr(self.gui, f'grid_{idx}', None)
+        for idx, grid_obj in sorted(self.gui.grid_tab_dict.items()):
             if grid_obj and hasattr(grid_obj, 'grid_entry'):
                 vals = read_entries_as_dict(grid_obj.grid_entry, GRID_FIELDS)
                 grids.append((idx, vals))
@@ -264,14 +263,15 @@ class CanvasDrawer:
             m, b = 0, 0.6
 
         # --- Draw grid points ---
-        color_map = {1: 'green', 2: 'orange', 3: 'blue'}
+        color_cycle = ['green', 'orange', 'blue', 'goldenrod', 'purple', 'brown']
         for x, y, g_idx, dispense in points:
             px = (x - self._origin_x) * effective_scale + self._pan_x
             py = c_h - ((y - self._origin_y) * effective_scale + self._pan_y)
             diam_mm = max(0, m * dispense + b)
             rad_px = min(max(1, int((diam_mm / 2) * effective_scale)), 80)
+            color = color_cycle[(g_idx - 1) % len(color_cycle)]
             self.canvas.create_oval(px - rad_px, py - rad_px, px + rad_px, py + rad_px,
-                                    fill=color_map.get(g_idx, 'black'), outline='')
+                                    fill=color, outline='')
 
         # --- Draw cleaning grids ---
         for g_idx, cvals in cleaning_grids_list:
@@ -302,9 +302,10 @@ class CanvasDrawer:
             x_start, x_offset = wash.get('washing_x_pos', 0), wash.get('washing_line_lenght', 0)
             row_offset = wash.get('washing_y_pos', 0)
 
-            start_x_world = x_abs + x_start
+            # Washing coordinates are absolute machine coordinates, same as container positions.
+            start_x_world = x_start
             end_x_world = start_x_world + x_offset
-            y_world = y_abs + row_offset
+            y_world = row_offset
 
             px_left = (start_x_world - self._origin_x) * effective_scale + self._pan_x
             px_right = (end_x_world - self._origin_x) * effective_scale + self._pan_x
@@ -325,7 +326,7 @@ class CanvasDrawer:
             pass
 
     def _apply_zoom(self, factor, focus_x, focus_y):
-        c_w, c_h = int(self.canvas['width']), int(self.canvas['height'])
+        c_h = int(self.canvas['height'])
         scale_old = self._fit_scale * self._zoom_factor
         if scale_old <= 0:
             return

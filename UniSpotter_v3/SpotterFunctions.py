@@ -1,6 +1,7 @@
 import json
 import os
 from dataclasses import dataclass
+from datetime import datetime
 
 
 @dataclass
@@ -145,3 +146,50 @@ def build_containers(entry_dict):
             x = y = z = 0.0
         containers[idx] = Container(x=x, y=y, z_filling_height=z)
     return containers
+
+
+def write_generation_settings_file(gcode_path, settings_snapshot):
+    """Write a human-readable settings snapshot next to a generated G-code file."""
+    base, _ = os.path.splitext(gcode_path)
+    settings_path = f"{base}_settings.txt"
+
+    lines = []
+    lines.append("AutoSpan Generation Settings")
+    lines.append("=" * 30)
+    lines.append(f"generated_at={datetime.now().isoformat(timespec='seconds')}")
+    lines.append(f"gcode_path={gcode_path}")
+    lines.append("")
+
+    global_settings = settings_snapshot.get("global_settings", {})
+    lines.append("[global_settings]")
+    for key in sorted(global_settings.keys()):
+        lines.append(f"{key}={global_settings[key]}")
+    lines.append("")
+
+    runtime_values = settings_snapshot.get("runtime_values", {})
+    if runtime_values:
+        lines.append("[runtime_values]")
+        for key in sorted(runtime_values.keys()):
+            lines.append(f"{key}={runtime_values[key]}")
+        lines.append("")
+
+    grid_settings = settings_snapshot.get("grid_settings", [])
+    for grid_data in grid_settings:
+        grid_number = grid_data.get("grid_number", "?")
+        lines.append(f"[grid_{grid_number}]")
+
+        for section_name in ("grid", "cleaning", "washing"):
+            section = grid_data.get(section_name, {})
+            if section:
+                lines.append(f"{section_name}:")
+                for key in sorted(section.keys()):
+                    lines.append(f"  {key}={section[key]}")
+
+        lines.append(f"cleaning_enabled={grid_data.get('cleaning_enabled', False)}")
+        lines.append(f"washing_enabled={grid_data.get('washing_enabled', False)}")
+        lines.append("")
+
+    with open(settings_path, "w") as file:
+        file.write("\n".join(lines).rstrip() + "\n")
+
+    return settings_path

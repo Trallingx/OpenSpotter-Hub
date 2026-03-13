@@ -1,4 +1,5 @@
 import os
+import traceback
 
 from tkinter import messagebox
 import tkinter as tk
@@ -39,13 +40,10 @@ class DropletGui(tk.Tk):
         super(DropletGui, self).__init__()
         self.config_dir = config_dir
         self.global_input_frame = None
-        self.grid_1 = None
-        self.grid_2 = None
-        self.grid_3 = None
         self.canvas_frame = None
         self.canvas = None
         self.grid_tabs = None
-        self.grid_tab_dict = {}  # Map tab index to grid object
+        self.grid_tab_dict = {}  # Map 1-based grid number to grid object
 
         self.entry = []
         self.grid_count = 0
@@ -299,7 +297,7 @@ class DropletGui(tk.Tk):
         self.calibration_button = tk.Button(
             self.calibration_frame,
             text="Generate Anchor Calibration",
-            command=self.generate_anchor_calibration,
+            command=lambda: self._run_action(self.generate_anchor_calibration, "Anchor Calibration"),
             bg=COLORS['accent'], fg=COLORS['bg_primary'], font=FONTS['small'],
             relief='flat', bd=0, padx=10, pady=4, cursor='hand2',
             activebackground='#00ffff', activeforeground=COLORS['bg_primary'],
@@ -337,63 +335,93 @@ class DropletGui(tk.Tk):
         btn_frame = tk.Frame(self.button_frame, bg=COLORS['bg_secondary'])
         btn_frame.pack(fill='both', expand=True)
 
-        add_grid_button = tk.Button(btn_frame, text="add grid", command=self.instance_grid,
+        add_grid_button = tk.Button(btn_frame, text="add grid", command=lambda: self._run_action(self.instance_grid, "Add Grid"),
                                 bg=COLORS['success'], fg=COLORS['bg_primary'], font=FONTS['normal'],
                                 relief='flat', bd=0, padx=12, pady=6, cursor='hand2',
                                 activebackground='#00ff88', activeforeground=COLORS['bg_primary'])
         add_grid_button.pack(side='top', padx=2, pady=2, fill='x')
 
-        remove_grid_button = tk.Button(btn_frame, text="remove grid", command=self.subtract_grid,
+        remove_grid_button = tk.Button(btn_frame, text="remove grid", command=lambda: self._run_action(self.subtract_grid, "Remove Grid"),
                                    bg=COLORS['error'], fg='white', font=FONTS['normal'],
                                    relief='flat', bd=0, padx=12, pady=6, cursor='hand2',
                                    activebackground='#ff6b6b', activeforeground='white')
         remove_grid_button.pack(side='top', padx=2, pady=2, fill='x')
 
-        check_input_button = tk.Button(btn_frame, text="check input", command=self.check_inputs,
+        check_input_button = tk.Button(btn_frame, text="check input", command=lambda: self._run_action(self.check_inputs, "Check Input"),
                                    bg=COLORS['accent'], fg=COLORS['bg_primary'], font=FONTS['normal'],
                                    relief='flat', bd=0, padx=12, pady=6, cursor='hand2',
                                    activebackground='#00ffff', activeforeground=COLORS['bg_primary'])
         check_input_button.pack(side='top', padx=2, pady=2, fill='x')
 
-        create_gcode_button = tk.Button(btn_frame, text="create G-code", command=self.save_file,
+        create_gcode_button = tk.Button(btn_frame, text="create G-code", command=lambda: self._run_action(self.save_file, "Create G-code"),
                                     bg=COLORS['accent'], fg=COLORS['bg_primary'], font=FONTS['normal'],
                                     relief='flat', bd=0, padx=12, pady=6, cursor='hand2',
                                     activebackground='#00ffff', activeforeground=COLORS['bg_primary'])
         create_gcode_button.pack(side='top', padx=2, pady=2, fill='x')
 
-        check_save_button = tk.Button(btn_frame, text="save defaults", command=self.check_saves,
+        check_save_button = tk.Button(btn_frame, text="save defaults", command=lambda: self._run_action(self.check_saves, "Save Defaults"),
                                   bg=COLORS['alt_accent'], fg=COLORS['bg_primary'], font=FONTS['normal'],
                                   relief='flat', bd=0, padx=12, pady=6, cursor='hand2',
                                   activebackground='#00ffaa', activeforeground=COLORS['bg_primary'])
         check_save_button.pack(side='top', padx=2, pady=2, fill='x')
 
+    def _run_action(self, action, action_name="Action"):
+        """Unified action runner for UI callbacks with consistent error popups."""
+        try:
+            return action()
+        except ValueError as exc:
+            open_secondary_window(f"{action_name} failed:\n{exc}", title="Input Error")
+        except Exception as exc:
+            # Keep traceback in console for debugging while showing a user-friendly popup.
+            traceback.print_exc()
+            open_secondary_window(f"{action_name} failed:\n{exc}", title="Unexpected Error")
+
+    def _iter_grids(self):
+        for grid_number in sorted(self.grid_tab_dict.keys()):
+            yield grid_number, self.grid_tab_dict[grid_number]
+
+    def _get_max_grid_count(self):
+        default_max = 6
+        if not self.entry:
+            return default_max
+        try:
+            global_dict = entries_to_dict(self.entry, GLOBAL_FIELDS)
+            max_count = int(global_dict.get('max_grid_count', default_max))
+        except Exception:
+            max_count = default_max
+        return max(1, max_count)
+
 
     def instance_grid(self):
         """Create a new grid in a new tab."""
-        if self.grid_count >= 3:
-            open_secondary_window("Cannot add more grids (maximum 3)")
+        max_grid_count = self._get_max_grid_count()
+        if self.grid_count >= max_grid_count:
+            open_secondary_window(f"Cannot add more grids (maximum {max_grid_count})")
             return
+
+        grid_number = self.grid_count + 1
 
         # Create new tab
         tab_frame = tk.Frame(self.grid_tabs)
-        self.grid_tabs.add(tab_frame, text=f"Grid {self.grid_count + 1}")
+        self.grid_tabs.add(tab_frame, text=f"Grid {grid_number}")
         
         # Create Grid object within the tab
-        config_file = os.path.join(self.config_dir, f"config_grid_{self.grid_count + 1}.json")
-        grid_colors = ["lightgreen", "orange", "lightblue"]
+        config_file = os.path.join(self.config_dir, f"config_grid_{grid_number}.json")
+        if not os.path.exists(config_file):
+            config_file = os.path.join(self.config_dir, "config_grid_1.json")
+        grid_colors = ["lightgreen", "orange", "lightblue", "gold", "violet", "salmon"]
         
-        grid_obj = Grid(tab_frame, 0, 0, config_file, grid_colors[self.grid_count], self.config_dir)
+        grid_obj = Grid(
+            tab_frame,
+            0,
+            0,
+            config_file,
+            grid_colors[(grid_number - 1) % len(grid_colors)],
+            self.config_dir,
+        )
         
-        # Store reference based on grid count
-        if self.grid_count == 0:
-            self.grid_1 = grid_obj
-        elif self.grid_count == 1:
-            self.grid_2 = grid_obj
-        elif self.grid_count == 2:
-            self.grid_3 = grid_obj
-        
-        self.grid_tab_dict[self.grid_count] = grid_obj
-        self.grid_count += 1
+        self.grid_tab_dict[grid_number] = grid_obj
+        self.grid_count = len(self.grid_tab_dict)
 
     def subtract_grid(self):
         """Remove the last grid tab."""
@@ -406,24 +434,14 @@ class DropletGui(tk.Tk):
             return
 
         # Always remove the last grid to maintain consistent grid numbering
-        last_grid_idx = self.grid_count - 1
+        last_grid_number = self.grid_count
         
         # Remove the last tab
-        self.grid_tabs.forget(last_grid_idx)
+        self.grid_tabs.forget(last_grid_number - 1)
         
         # Clean up grid references
-        if last_grid_idx in self.grid_tab_dict:
-            del self.grid_tab_dict[last_grid_idx]
-        
-        # Clean up grid attribute references
-        if last_grid_idx == 0:
-            self.grid_1 = None
-        elif last_grid_idx == 1:
-            self.grid_2 = None
-        elif last_grid_idx == 2:
-            self.grid_3 = None
-        
-        self.grid_count -= 1
+        self.grid_tab_dict.pop(last_grid_number, None)
+        self.grid_count = len(self.grid_tab_dict)
 
     def check_saves(self):
         # Save grid count
@@ -434,15 +452,19 @@ class DropletGui(tk.Tk):
         save_defaults(os.path.join(self.config_dir, "config_global.json"), global_dict)
 
         # Save each grid using dicts for grid, cleaning, washing
-        for grid_idx, grid_obj in self.grid_tab_dict.items():
-            cfg_path = os.path.join(self.config_dir, f"config_grid_{grid_idx + 1}.json")
+        for grid_number, grid_obj in self._iter_grids():
+            cfg_path = os.path.join(self.config_dir, f"config_grid_{grid_number}.json")
 
             grid_dict = entries_to_dict(grid_obj.grid_entry, GRID_FIELDS)
             cleaning_dict = entries_to_dict(grid_obj.cleaning_entry, CLEANING_FIELDS)
             washing_dict = entries_to_dict(grid_obj.washing_entry, WASHING_FIELDS)
+            grid_state_dict = {
+                "cleaning_enabled": bool(grid_obj.cleaning_enabled.get()),
+                "washing_enabled": bool(grid_obj.washing_enabled.get()),
+            }
 
-            save_defaults(cfg_path, grid_dict, cleaning_dict, washing_dict)
-            print(f"✅ Saved grid {grid_idx + 1} defaults to {cfg_path}")
+            save_defaults(cfg_path, grid_dict, cleaning_dict, washing_dict, grid_state_dict)
+            print(f"✅ Saved grid {grid_number} defaults to {cfg_path}")
 
 
 
@@ -465,7 +487,7 @@ class DropletGui(tk.Tk):
             pass
 
     def save_file(self):
-        save_file(self.grid_count, self)
+        save_file(self)
 
     def _toggle_calibration_button(self):
         """Show/hide and enable/disable the calibration button based on checkbox state."""
@@ -509,8 +531,8 @@ class DropletGui(tk.Tk):
             if isinstance(widget, tk.Entry):
                 widget.config(state=state)
 
-    def check_inputs(self, gui):
-        global_entry = read_entries(gui.entry)
+    def check_inputs(self):
+        global_entry = read_entries(self.entry)
         # Read global offsets (for positioning, not sizing)
         first_x_off = float(global_entry[2]) if len(global_entry) > 2 else 0.0
         first_y_off = float(global_entry[3]) if len(global_entry) > 3 else 0.0
@@ -532,7 +554,7 @@ class DropletGui(tk.Tk):
         # Helper to check a grid safely
         def check_grid_obj(grid_obj, grid_idx):
             try:
-                vals = read_entries(grid_obj.entry)
+                vals = read_entries(grid_obj.grid_entry)
             except Exception:
                 return
             # vals expected: rows, cols, x_step, y_step, ..., grid_offset_x, grid_offset_y
@@ -569,11 +591,8 @@ class DropletGui(tk.Tk):
                 exceeded.append(grid_idx)
 
         # Check each existing grid independently
-        for grid_idx in range(1, 4):
-            grid_attr = f'grid_{grid_idx}'
-            grid_obj = getattr(gui, grid_attr, None)
-            if grid_obj is not None:
-                check_grid_obj(grid_obj, grid_idx)
+        for grid_number, grid_obj in self._iter_grids():
+            check_grid_obj(grid_obj, grid_number)
 
         if exceeded:
             if len(exceeded) == 1:
@@ -581,14 +600,14 @@ class DropletGui(tk.Tk):
             else:
                 open_secondary_window(f"Grids {', '.join(map(str, exceeded))} exceed acceptance size of 19x39 mm")
 
-def open_secondary_window(text):
+def open_secondary_window(text, title="Notice"):
     secondary_window = tk.Toplevel()
-    secondary_window.title("Secondary Window")
+    secondary_window.title(title)
     secondary_window.config(width=400, height=200, bg=COLORS['bg_primary'])
     # Create a button to close (destroy) this window.
     button_close = tk.Button(
         secondary_window,
-        text=text,
+        text=f"{text}\n\nClose",
         command=secondary_window.destroy,
         bg=COLORS['accent'], fg=COLORS['bg_primary'], font=FONTS['normal'],
         relief='flat', bd=0, padx=12, pady=6, cursor='hand2',

@@ -1,12 +1,12 @@
 from tkinter import filedialog
 from SpotterFunctions import read_entries_as_dict
 from SpotterFunctions import build_containers
-from input_configs import GLOBAL_FIELDS, GRID_FIELDS
+from SpotterFunctions import write_generation_settings_file
+from input_configs import GLOBAL_FIELDS, GRID_FIELDS, CLEANING_FIELDS, WASHING_FIELDS
 from spotter_gcode import (
     start_gcode,
     write_anchor_calibration_sequence,
     generate_grid,
-    loading_syringe,
     emptying_syringe,
     present_build_plate,
 )
@@ -87,7 +87,7 @@ def generate_anchor_calibration(self):
         )
 
 
-def save_file(grid_count, self):
+def save_file(self):
     filepath = _prompt_save_path("drop_array.gcode")
     if not filepath:
         return
@@ -118,7 +118,21 @@ def save_file(grid_count, self):
 
     z_movement_pos_low = float(entry_dict['z_movement_pos_low'])
     z_movement_pos_high = float(entry_dict['z_movement_pos_high'])
-    syringe_leftovers = [0.0]  # Track net loaded minus dispensed volume
+    syringe_leftovers = [0.0]  # Track remaining syringe travel in mm
+
+    settings_snapshot = {
+        "global_settings": dict(entry_dict),
+        "runtime_values": {
+            "x_offset": x_offset,
+            "y_offset": y_offset,
+            "acceptance_square_x_left": acceptance_square['x_left'],
+            "acceptance_square_x_right": acceptance_square['x_right'],
+            "acceptance_square_y_bottom": acceptance_square['y_bottom'],
+            "acceptance_square_y_top": acceptance_square['y_top'],
+            "mesh_points": mesh_points,
+        },
+        "grid_settings": [],
+    }
     
     # code generation
     # creating the coordinates from the intersection between xline and y line which is x and y
@@ -131,20 +145,29 @@ def save_file(grid_count, self):
 
     # movement loop
         washing_spot_counter = [0]  # Use list to track across grid iterations
-        for grid_idx in range(grid_count):
-            # Get the correct grid object for this iteration
-            grid_attr = f'grid_{grid_idx + 1}'
-            grid_obj = getattr(self, grid_attr, None)
-            if grid_obj is None:
-                continue
+        for _, grid_obj in sorted(self.grid_tab_dict.items()):
             
             grid_entry_dict = read_entries_as_dict(grid_obj.grid_entry, GRID_FIELDS)
+            cleaning_entry_dict = read_entries_as_dict(grid_obj.cleaning_entry, CLEANING_FIELDS)
+            washing_entry_dict = read_entries_as_dict(grid_obj.washing_entry, WASHING_FIELDS)
+            grid_number = len(settings_snapshot["grid_settings"]) + 1
+
+            settings_snapshot["grid_settings"].append({
+                "grid_number": grid_number,
+                "grid": dict(grid_entry_dict),
+                "cleaning": dict(cleaning_entry_dict),
+                "washing": dict(washing_entry_dict),
+                "cleaning_enabled": bool(grid_obj.cleaning_enabled.get()),
+                "washing_enabled": bool(grid_obj.washing_enabled.get()),
+            })
+
             rows = int(grid_entry_dict['rows'])
             cols = int(grid_entry_dict['cols'])
             # step size inside the grid
             x_shift = float(grid_entry_dict['pitch_x'])
             y_shift = float(grid_entry_dict['pitch_y'])
             extrude = float(grid_entry_dict['dispense_vol'])
+            row_add_volume = float(grid_entry_dict.get('row_add_volume', 0.0))
             
             # z calibrations
             z_contact = float(grid_entry_dict['z_contact']) 
@@ -179,18 +202,6 @@ def save_file(grid_count, self):
                 total_fill = rows * cols * extrude
 
             priming_vol = float(entry_dict['priming_vol'])
-            loading_syringe(
-                file,
-                loading_container,
-                z_movement_pos_high,
-                speed,
-                decent_speed,
-                adcent_speed,
-                refilling_speed,
-                total_fill=total_fill,
-                priming_vol=priming_vol,
-                syringe_tracker=syringe_leftovers,
-            )
 
             # Generate and write the normal grid
             generate_grid(
@@ -200,6 +211,7 @@ def save_file(grid_count, self):
                 x_shift,
                 y_shift,
                 extrude,
+                row_add_volume,
                 grid_x_offset,
                 grid_y_offset,
                 x_offset,
@@ -242,3 +254,6 @@ def save_file(grid_count, self):
 
         # presenting build plate
         present_build_plate(file)
+
+    settings_path = write_generation_settings_file(filepath, settings_snapshot)
+    print(f"✅ Saved generation settings to {settings_path}")
