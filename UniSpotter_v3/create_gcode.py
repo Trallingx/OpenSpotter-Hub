@@ -9,6 +9,7 @@ from spotter_gcode import (
     generate_grid,
     emptying_syringe,
     present_build_plate,
+    auto_cleaning_grid,
 )
 
 
@@ -70,10 +71,26 @@ def generate_anchor_calibration(self):
     probe_y = float(entry_dict['probe_y'])
     acceptance_square = _compute_acceptance_square(entry_dict)
     
+    # Utility parameters for probe and timing
+    probe_ram_height = float(entry_dict.get('probe_ram_height', 110.0))
+    probe_return_height = float(entry_dict.get('probe_return_height', 105.0))
+    calibration_height = float(entry_dict.get('calibration_height', 0.0))
+    calibration_wait = float(entry_dict.get('calibration_wait', 1.0))
+    probe_feed_rate = float(entry_dict.get('probe_feed_rate', 300.0))
+    calibration_feed_rate = float(entry_dict.get('calibration_feed_rate', 300.0))
+    
     
     with open(filepath, "w") as file:
         # Write start G-code
-        start_gcode(file, z_high, probe_x, probe_y, speed, decent_speed, adcent_speed, acceptance_square)
+        start_gcode(
+            file, z_high, probe_x, probe_y, speed, decent_speed, adcent_speed, acceptance_square,
+            probe_ram_height=probe_ram_height,
+            probe_return_height=probe_return_height,
+            calibration_height=calibration_height,
+            calibration_wait=calibration_wait,
+            probe_feed_rate=probe_feed_rate,
+            calibration_feed_rate=calibration_feed_rate,
+        )
         
         write_anchor_calibration_sequence(
             file,
@@ -84,6 +101,7 @@ def generate_anchor_calibration(self):
             speed,
             decent_speed,
             adcent_speed,
+            calibration_wait=calibration_wait,
         )
 
 
@@ -115,6 +133,24 @@ def save_file(self):
     refilling_speed = float(entry_dict['refilling_speed'])
 
     max_syringe_vol = float(entry_dict['max_syringe_vol'])
+    max_syringe_mm = float(entry_dict.get('max_syringe_mm', 50.0))
+    min_syringe_mm = float(entry_dict.get('min_syringe_mm', 0.0))
+
+    # Utility parameters for probe and timing
+    probe_ram_height = float(entry_dict.get('probe_ram_height', 110.0))
+    probe_return_height = float(entry_dict.get('probe_return_height', 105.0))
+    calibration_height = float(entry_dict.get('calibration_height', 0.0))
+    present_plate_y = float(entry_dict.get('present_plate_y', 170.0))
+    present_plate_speed = float(entry_dict.get('present_plate_speed', 2000.0))
+    row_start_wait = float(entry_dict.get('row_start_wait', 0.2))
+    calibration_wait = float(entry_dict.get('calibration_wait', 1.0))
+    emptying_wait = float(entry_dict.get('emptying_wait', 1.0))
+    rinse_aspiration_wait = float(entry_dict.get('rinse_aspiration_wait', 0.5))
+    rinse_final_wait = float(entry_dict.get('rinse_final_wait', 2.0))
+    probe_feed_rate = float(entry_dict.get('probe_feed_rate', 300.0))
+    calibration_feed_rate = float(entry_dict.get('calibration_feed_rate', 300.0))
+    syringe_aspirate_wait = float(entry_dict.get('syringe_aspirate_wait', 2.0))
+    syringe_prime_wait = float(entry_dict.get('syringe_prime_wait', 2.0))
 
     z_movement_pos_low = float(entry_dict['z_movement_pos_low'])
     z_movement_pos_high = float(entry_dict['z_movement_pos_high'])
@@ -141,7 +177,16 @@ def save_file(self):
     # writing into the file
     # start g-code
     with open(filepath, "w") as file:
-        start_gcode(file, z_movement_pos_high, probe_x, probe_y, speed, decent_speed, adcent_speed, acceptance_square, mesh_points)
+        start_gcode(
+            file, z_movement_pos_high, probe_x, probe_y, speed, decent_speed, adcent_speed, 
+            acceptance_square, mesh_points,
+            probe_ram_height=probe_ram_height,
+            probe_return_height=probe_return_height,
+            calibration_height=calibration_height,
+            calibration_wait=calibration_wait,
+            probe_feed_rate=probe_feed_rate,
+            calibration_feed_rate=calibration_feed_rate,
+        )
 
     # movement loop
         washing_spot_counter = [0]  # Use list to track across grid iterations
@@ -159,6 +204,7 @@ def save_file(self):
                 "washing": dict(washing_entry_dict),
                 "cleaning_enabled": bool(grid_obj.cleaning_enabled.get()),
                 "washing_enabled": bool(grid_obj.washing_enabled.get()),
+                "final_rinse_enabled": bool(grid_obj.final_rinse_enabled.get()),
             })
 
             rows = int(grid_entry_dict['rows'])
@@ -193,7 +239,7 @@ def save_file(self):
             if emptying_container is None:
                 raise ValueError(f"Container {emptying_container_id} is not configured for emptying")
 
-            # choosing between container 1 to 2
+            
             # for second grid invert selection
             total_fill = 0
             if (rows * cols * extrude) >= max_syringe_vol:
@@ -235,6 +281,11 @@ def save_file(self):
                 priming_vol=priming_vol,
                 refill=total_fill,
                 syringe_tracker=syringe_leftovers,
+                row_start_wait=row_start_wait,
+                syringe_aspirate_wait=syringe_aspirate_wait,
+                syringe_prime_wait=syringe_prime_wait,
+                cleaning_anchor_x=x_abs,
+                cleaning_anchor_y=y_abs,
             )
 
             # emptying syringe
@@ -247,13 +298,40 @@ def save_file(self):
                 adcent_speed,
                 dispensing_speed,
                 refilling_speed,
+                final_rinse_enabled=bool(grid_obj.final_rinse_enabled.get()),
+                rinsing_cycles=int(cleaning_entry_dict.get('final_rinse_cycles', 1)),
+                max_syringe_mm=max_syringe_mm,
+                min_syringe_mm=min_syringe_mm,
+                emptying_wait=emptying_wait,
+                rinse_aspiration_wait=rinse_aspiration_wait,
+                rinse_final_wait=rinse_final_wait,
                 syringe_tracker=syringe_leftovers,
             )
+
+            # Add final cleaning grid if enabled
+            if (bool(grid_obj.final_rinse_enabled.get()) and 
+                bool(grid_obj.final_rinse_add_cleaning_grid.get())):
+                auto_cleaning_grid(
+                    grid_obj,
+                    file,
+                    x_abs,
+                    y_abs,
+                    z_contact,
+                    z_movement_pos_low,
+                    z_movement_pos_high,
+                    speed=speed,
+                    decent_speed=decent_speed,
+                    adcent_speed=adcent_speed,
+                    dispensing_speed=dispensing_speed,
+                    refilling_speed=refilling_speed,
+                    syringe_tracker=syringe_leftovers,
+                    row_start_wait=row_start_wait,
+                )
 
             loop_counter = loop_counter + 1
 
         # presenting build plate
-        present_build_plate(file)
+        present_build_plate(file, present_plate_y=present_plate_y, present_plate_speed=present_plate_speed)
 
     settings_path = write_generation_settings_file(filepath, settings_snapshot)
     print(f"✅ Saved generation settings to {settings_path}")

@@ -1,6 +1,6 @@
 import json
 import os
-from input_configs import GRID_FIELDS, CLEANING_FIELDS, WASHING_FIELDS
+from input_configs import GRID_FIELDS, CLEANING_FIELDS, WASHING_FIELDS, COLORS, FONTS
 import tkinter as tk
 import tkinter.ttk as ttk
 
@@ -16,6 +16,7 @@ class Grid(object):
         self.washing_entry = []
         self.cleaning_widgets = []  # Store cleaning widgets for show/hide
         self.washing_widgets = []  # Store washing widgets for show/hide
+        self.final_rinse_widgets = []  # Store final rinse widgets for show/hide
         self.grid = None
         self.frame_row = frame_row
         self.frame_col = frame_col
@@ -55,9 +56,25 @@ class Grid(object):
         except Exception:
             pass
 
+    def _toggle_final_rinse_inputs(self):
+        """Show/hide final rinse widgets based on checkbox state."""
+        is_enabled = self.final_rinse_enabled.get()
+        # Hide/show all final rinse widgets except the checkbox itself
+        for widget in self.final_rinse_widgets[1:]:  # Skip the checkbox
+            if is_enabled:
+                widget.grid()
+            else:
+                widget.grid_remove()
+        # Trigger canvas update
+        try:
+            if hasattr(self.gui, 'canvas_drawer') and self.gui.canvas_drawer:
+                self.gui.canvas_drawer._poll()
+        except Exception:
+            pass
+
     def create_grid(self, config, background):
         # Create a scrollable frame within the tab
-        main_container = tk.Frame(self.gui, bg='#1e1e2e')
+        main_container = tk.Frame(self.gui, bg=COLORS['bg_primary'])
         main_container.grid(row=0, column=0, sticky='nsew')
         main_container.rowconfigure(0, weight=1)
         main_container.columnconfigure(0, weight=1)
@@ -65,9 +82,9 @@ class Grid(object):
         self.gui.columnconfigure(0, weight=1)
 
         # Create canvas for scrolling
-        canvas = tk.Canvas(main_container, bg='#1e1e2e', highlightthickness=0)
-        scrollbar = tk.Scrollbar(main_container, orient='vertical', command=canvas.yview, bg='#2a2a3e', troughcolor='#1e1e2e')
-        scrollable_frame = tk.Frame(canvas, bg='#1e1e2e')
+        canvas = tk.Canvas(main_container, bg=COLORS['bg_primary'], highlightthickness=0)
+        scrollbar = tk.Scrollbar(main_container, orient='vertical', command=canvas.yview, bg=COLORS['bg_secondary'], troughcolor=COLORS['bg_primary'])
+        scrollable_frame = tk.Frame(canvas, bg=COLORS['bg_primary'])
         
         scrollable_frame.bind(
             "<Configure>",
@@ -81,20 +98,23 @@ class Grid(object):
         scrollbar.grid(row=0, column=1, sticky='ns')
 
         self.master_input_frame = scrollable_frame
-        self.master_input_frame.config(bg='#1e1e2e', border=0)
+        self.master_input_frame.config(bg=COLORS['bg_primary'], border=0)
+        
+        # Store canvas reference for scroll wheel binding
+        self.canvas = canvas
 
-        self.grid_input_frame = tk.Frame(self.master_input_frame, bg='#2a2a3e', relief='flat', bd=1, highlightbackground='#444455', highlightthickness=1)
+        self.grid_input_frame = tk.Frame(self.master_input_frame, bg=COLORS['bg_secondary'], relief='flat', bd=1, highlightbackground=COLORS['border'], highlightthickness=1)
         self.grid_input_frame.pack(fill='x', padx=8, pady=8)
         
-        Grid_label = tk.Label(self.grid_input_frame, text="Grid Configuration", bg='#2a2a3e', fg='#00d4ff', 
-                             font=("Segoe UI", 11, "bold"))
+        Grid_label = tk.Label(self.grid_input_frame, text="Grid Configuration", bg=COLORS['bg_secondary'], fg=COLORS['accent'], 
+                             font=FONTS['header'])
         Grid_label.grid(row=0, column=0, columnspan=3, pady=8, padx=8)
 
-        self.cleaning_input_frame = tk.Frame(self.master_input_frame, bg='#2a2a3e', relief='flat', bd=1, highlightbackground='#444455', highlightthickness=1)
+        self.cleaning_input_frame = tk.Frame(self.master_input_frame, bg=COLORS['bg_secondary'], relief='flat', bd=1, highlightbackground=COLORS['border'], highlightthickness=1)
         self.cleaning_input_frame.pack(fill='x', padx=8, pady=8)
         
-        Cleaning_label = tk.Label(self.cleaning_input_frame, text="Cleaning Configuration", bg='#2a2a3e', fg='#00d4ff',
-                                 font=("Segoe UI", 11, "bold"))
+        Cleaning_label = tk.Label(self.cleaning_input_frame, text="Cleaning Configuration", bg=COLORS['bg_secondary'], fg=COLORS['accent'],
+                                 font=FONTS['header'])
         Cleaning_label.grid(row=0, column=0, columnspan=3, pady=8, padx=8)
 
         config_path = os.path.join(self.config_dir, config)
@@ -127,23 +147,62 @@ class Grid(object):
             text="Enable Cleaning Grid",
             variable=self.cleaning_enabled,
             command=self._toggle_cleaning_inputs,
-            bg='#2a2a3e', fg='#00ff88', selectcolor='#1e1e2e', font=("Segoe UI", 10),
-            activebackground='#2a2a3e', activeforeground='#00ff88'
+            bg=COLORS['bg_secondary'], fg=COLORS['alt_accent'], selectcolor=COLORS['bg_primary'], font=FONTS['normal'],
+            activebackground=COLORS['bg_secondary'], activeforeground=COLORS['alt_accent']
         )
         cleaning_checkbox.grid(row=1, column=0, columnspan=3, pady=8, padx=8, sticky="W")
         self.cleaning_widgets.append(cleaning_checkbox)
 
+        cleaning_start_row = 2
         create_labels(
             CLEANING_FIELDS,
             grid_defaults,
             self.cleaning_entry,
             self.cleaning_input_frame,
             self.gui,
-            start_row=2,
+            start_row=cleaning_start_row,
             widgets_list=self.cleaning_widgets
         )
         
-        # Add checkbox to enable/disable washing needle at row 10 (after cleaning inputs)
+        # Align final-rinse toggle with the final_rinse_cycles field (last cleaning row).
+        final_rinse_row = cleaning_start_row + len(CLEANING_FIELDS) - 1
+        self.final_rinse_enabled = tk.BooleanVar(
+            value=_to_bool(grid_defaults.get("final_rinse_enabled", False))
+        )
+        final_rinse_checkbox = tk.Checkbutton(
+            self.cleaning_input_frame,
+            text="Enable Final Rinse",
+            variable=self.final_rinse_enabled,
+            command=self._toggle_final_rinse_inputs,
+            bg=COLORS['bg_secondary'], fg=COLORS['alt_accent'], selectcolor=COLORS['bg_primary'], font=FONTS['normal'],
+            activebackground=COLORS['bg_secondary'], activeforeground=COLORS['alt_accent']
+        )
+        final_rinse_checkbox.grid(row=final_rinse_row, column=0, pady=8, padx=8, sticky="W")
+        self.final_rinse_widgets.append(final_rinse_checkbox)
+
+        # Reflow the final_rinse_cycles widgets one row below the checkbox.
+        final_rinse_label, final_rinse_entry, final_rinse_unit = self.cleaning_widgets[-3:]
+        final_rinse_label.grid_configure(row=final_rinse_row + 1, column=0, sticky="W", padx=4)
+        final_rinse_entry.grid_configure(row=final_rinse_row + 1, column=1, sticky="WE", padx=4)
+        final_rinse_unit.grid_configure(row=final_rinse_row + 1, column=2, sticky="W", padx=4)
+        self.final_rinse_widgets.extend([final_rinse_label, final_rinse_entry, final_rinse_unit])
+
+        # Add "Add Cleaning Grid" checkbox below final rinse (only shows when final_rinse_enabled is checked)
+        self.final_rinse_add_cleaning_grid = tk.BooleanVar(
+            value=_to_bool(grid_defaults.get("final_rinse_add_cleaning_grid", False))
+        )
+        add_cleaning_grid_checkbox = tk.Checkbutton(
+            self.cleaning_input_frame,
+            text="Add Cleaning Grid",
+            variable=self.final_rinse_add_cleaning_grid,
+            bg=COLORS['bg_secondary'], fg=COLORS['alt_accent'], selectcolor=COLORS['bg_primary'], font=FONTS['normal'],
+            activebackground=COLORS['bg_secondary'], activeforeground=COLORS['alt_accent']
+        )
+        add_cleaning_grid_checkbox.grid(row=final_rinse_row + 2, column=0, pady=8, padx=8, sticky="W")
+        self.final_rinse_widgets.append(add_cleaning_grid_checkbox)
+
+        washing_start_row = cleaning_start_row + len(CLEANING_FIELDS) + 3
+        # Add checkbox to enable/disable washing needle after cleaning inputs
         self.washing_enabled = tk.BooleanVar(
             value=_to_bool(grid_defaults.get("washing_enabled", False))
         )
@@ -152,10 +211,10 @@ class Grid(object):
             text="Enable Washing Needle",
             variable=self.washing_enabled,
             command=self._toggle_washing_inputs,
-            bg='#2a2a3e', fg='#00d4ff', selectcolor='#1e1e2e', font=("Segoe UI", 10),
-            activebackground='#2a2a3e', activeforeground='#00d4ff'
+            bg=COLORS['bg_secondary'], fg=COLORS['accent'], selectcolor=COLORS['bg_primary'], font=FONTS['normal'],
+            activebackground=COLORS['bg_secondary'], activeforeground=COLORS['accent']
         )
-        washing_checkbox.grid(row=10, column=0, columnspan=3, pady=8, padx=8, sticky="W")
+        washing_checkbox.grid(row=washing_start_row, column=0, columnspan=3, pady=8, padx=8, sticky="W")
         self.washing_widgets.append(washing_checkbox)
 
         create_labels(
@@ -164,11 +223,15 @@ class Grid(object):
             self.washing_entry,
             self.cleaning_input_frame,
             self.gui,
-            start_row=11,
+            start_row=washing_start_row + 1,
             widgets_list=self.washing_widgets
             )
+
         # Initially hide washing inputs
         self._toggle_washing_inputs()
+
+        # Initially hide final rinse inputs
+        self._toggle_final_rinse_inputs()
         
         # Initially hide cleaning inputs
         self._toggle_cleaning_inputs()
@@ -194,7 +257,7 @@ def create_labels(fields, defaults, entries, input_frame,
             if tab_name in seen or not tab_name:
                 continue
             seen.append(tab_name)
-            frame = tk.Frame(notebook, bg='#3a3a4e', relief='flat', bd=1, highlightbackground='#555566', highlightthickness=1)
+            frame = tk.Frame(notebook, bg=COLORS['bg_tertiary'], relief='flat', bd=1, highlightbackground=COLORS['border'], highlightthickness=1)
             for col in range(3):
                 frame.columnconfigure(col, weight=1 if col == 1 else 0)
             # Keep the first rows unstretched so inputs stay at the top
@@ -217,22 +280,22 @@ def create_labels(fields, defaults, entries, input_frame,
         label = tk.Label(
             parent_for_field,
             text=field.label,
-            bg='#2a2a3e', fg='#ffffff',
-            font=("Segoe UI", 9)
+            bg=COLORS['bg_secondary'], fg=COLORS['text_primary'],
+            font=FONTS['small']
         )
 
         entry = tk.Entry(
             parent_for_field, bd=0, relief='flat',
-            bg='#3a3a4e', fg='#00d4ff',
-            font=("Segoe UI", 9, "bold"),
-            insertbackground='#00d4ff'
+            bg=COLORS['bg_tertiary'], fg=COLORS['accent'],
+            font=(FONTS['small'][0], FONTS['small'][1], 'bold'),
+            insertbackground=COLORS['accent']
         )
 
         unit = tk.Label(
             parent_for_field,
             text=field.unit,
-            bg='#2a2a3e', fg='#888899',
-            font=("Segoe UI", 8)
+            bg=COLORS['bg_secondary'], fg=COLORS['text_secondary'],
+            font=(FONTS['small'][0], 8)
         )
 
         # Insert default value

@@ -7,6 +7,30 @@ from dataclasses import dataclass
 from typing import Any, List
 
 
+# ========== UI Theme ==========
+COLORS = {
+    'bg_primary': '#1e1e2e',      # Dark background
+    'bg_secondary': '#2a2a3e',    # Slightly lighter
+    'bg_tertiary': '#3a3a4e',     # Even lighter for inputs
+    'accent': '#00d4ff',          # Cyan accent
+    'alt_accent': '#00ff88',      # Green accent
+    'text_primary': '#ffffff',    # White text
+    'text_secondary': '#b0b0b0',  # Gray text
+    'border': '#404050',          # Border color
+    'error': '#ff6b6b',           # Red error
+    'success': '#00ff88',         # Green success
+}
+
+FONTS = {
+    'title': ('Segoe UI', 18, 'bold'),
+    'header': ('Segoe UI', 12, 'bold'),
+    'normal': ('Segoe UI', 10),
+    'small': ('Segoe UI', 9),
+    'mono': ('Courier New', 10),
+}
+
+
+# ========== Field Definitions ==========
 @dataclass(frozen=True)
 class Field:
     key: str
@@ -14,10 +38,6 @@ class Field:
     unit: str
     default: Any = 0.0
     tab: str = ""
-
-
-# ------------------------------------------------------------------
-# Field definitions
 # ------------------------------------------------------------------
 
 GLOBAL_FIELDS: List[Field] = [
@@ -68,6 +88,23 @@ GLOBAL_FIELDS: List[Field] = [
     Field("refilling_speed", "Refilling Speed", "mm", tab="Fluids"),
     Field("max_syringe_vol", "Maximum Syringe Volume", "uL", tab="Fluids"),
     Field("priming_vol", "Priming Volume", "uL", default=3.0, tab="Fluids"),
+
+    Field("max_syringe_mm", "Max Syringe MM (Rinse)", "mm", default=50.0, tab="Utilities"),
+    Field("min_syringe_mm", "Min Syringe MM (Rinse)", "mm", default=0.0, tab="Utilities"),
+    Field("probe_ram_height", "Probe Ram Height", "mm", default=110.0, tab="Utilities"),
+    Field("probe_return_height", "Probe Return Height", "mm", default=105.0, tab="Utilities"),
+    Field("calibration_height", "Calibration Height", "mm", default=0.0, tab="Utilities"),
+    Field("present_plate_y", "Present Plate Y Position", "mm", default=170.0, tab="Utilities"),
+    Field("present_plate_speed", "Present Plate Speed", "mm/s", default=2000.0, tab="Utilities"),
+    Field("row_start_wait", "Row Start Wait", "s", default=0.2, tab="Utilities"),
+    Field("calibration_wait", "Calibration Wait", "s", default=1.0, tab="Utilities"),
+    Field("emptying_wait", "Emptying Wait", "s", default=1.0, tab="Utilities"),
+    Field("rinse_aspiration_wait", "Rinse Aspiration Wait", "s", default=0.5, tab="Utilities"),
+    Field("rinse_final_wait", "Rinse Final Wait", "s", default=2.0, tab="Utilities"),
+    Field("probe_feed_rate", "Probe Feed Rate", "mm/s", default=300.0, tab="Utilities"),
+    Field("calibration_feed_rate", "Calibration Feed Rate", "mm/s", default=300.0, tab="Utilities"),
+    Field("syringe_aspirate_wait", "Syringe Aspirate Wait", "s", default=2.0, tab="Utilities"),
+    Field("syringe_prime_wait", "Syringe Prime Wait", "s", default=2.0, tab="Utilities"),
 ]
 
 
@@ -96,6 +133,7 @@ CLEANING_FIELDS: List[Field] = [
     Field("grid_offset_x_cleaning", "Grid offset X", "mm"),
     Field("grid_offset_y_cleaning", "Grid offset Y", "mm"),
     Field("spots_before_cleaning", "Spots before cleaning", "int"),
+    Field("final_rinse_cycles", "Final Rinse Cycles", "int", default=1),
 ]
 
 

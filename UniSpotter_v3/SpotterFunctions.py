@@ -114,24 +114,9 @@ def read_entries(entry):
     return [float(entry[i].get()) for i in range(count)]
 
 
-def read_entries_as_dict(entries, fields):
-    """
-    entries: list of Entry widgets
-    fields: list of Field objects (or tuples with .key)
-    """
-    result = {}
-    for entry, field in zip(entries, fields):
-        try:
-            raw = entry.get()
-            if field.unit == "int":
-                result[field.key] = int(raw)
-            elif field.unit in ("mm", "uL", "s"):
-                result[field.key] = float(raw)
-            else:
-                result[field.key] = raw
-        except Exception:
-            result[field.key] = field.default
-    return result
+# NOTE: read_entries_as_dict consolidated into entries_to_dict (above)
+# This alias is kept for backwards compatibility during transition
+read_entries_as_dict = entries_to_dict
 
 
 def build_containers(entry_dict):
@@ -187,6 +172,7 @@ def write_generation_settings_file(gcode_path, settings_snapshot):
 
         lines.append(f"cleaning_enabled={grid_data.get('cleaning_enabled', False)}")
         lines.append(f"washing_enabled={grid_data.get('washing_enabled', False)}")
+        lines.append(f"final_rinse_enabled={grid_data.get('final_rinse_enabled', False)}")
         lines.append("")
 
     with open(settings_path, "w") as file:

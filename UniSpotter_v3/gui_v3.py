@@ -8,32 +8,10 @@ from PIL import ImageTk, Image
 
 
 from SpotterFunctions import entries_to_dict, read_entries, save_defaults, write_state
-from input_configs import CLEANING_FIELDS, GLOBAL_FIELDS, GRID_FIELDS, WASHING_FIELDS
+from input_configs import CLEANING_FIELDS, GLOBAL_FIELDS, GRID_FIELDS, WASHING_FIELDS, COLORS, FONTS
 from grid import Grid
 from create_gcode import generate_anchor_calibration, save_file
 from canvas_drawer import CanvasDrawer
-
-# Modern Color Scheme
-COLORS = {
-    'bg_primary': '#1e1e2e',      # Dark background
-    'bg_secondary': '#2a2a3e',    # Slightly lighter
-    'bg_tertiary': '#3a3a4e',     # Even lighter for inputs
-    'accent': '#00d4ff',          # Cyan accent
-    'alt_accent': '#00ff88',      # Green accent
-    'text_primary': '#ffffff',    # White text
-    'text_secondary': '#b0b0b0',  # Gray text
-    'border': '#404050',          # Border color
-    'error': '#ff6b6b',           # Red error
-    'success': '#00ff88',         # Green success
-}
-
-FONTS = {
-    'title': ('Segoe UI', 18, 'bold'),
-    'header': ('Segoe UI', 12, 'bold'),
-    'normal': ('Segoe UI', 10),
-    'small': ('Segoe UI', 9),
-    'mono': ('Courier New', 10),
-}
 
 class DropletGui(tk.Tk):
     def __init__(self, config_dir):
@@ -461,6 +439,8 @@ class DropletGui(tk.Tk):
             grid_state_dict = {
                 "cleaning_enabled": bool(grid_obj.cleaning_enabled.get()),
                 "washing_enabled": bool(grid_obj.washing_enabled.get()),
+                "final_rinse_enabled": bool(grid_obj.final_rinse_enabled.get()),
+                "final_rinse_add_cleaning_grid": bool(grid_obj.final_rinse_add_cleaning_grid.get()),
             }
 
             save_defaults(cfg_path, grid_dict, cleaning_dict, washing_dict, grid_state_dict)

@@ -282,10 +282,9 @@ class CanvasDrawer:
             pitch_x, pitch_y = cleaning.get('pitch_x_cleaning', 0), cleaning.get('pitch_y_cleaning', 0)
             offset_x, offset_y = cleaning.get('grid_offset_x_cleaning', 0), cleaning.get('grid_offset_y_cleaning', 0)
 
-            main_grid = next((vals for idx, vals in grids_list if idx == g_idx), {})
-            gx_off, gy_off = float(main_grid.get('grid_offset_x', 0)), float(main_grid.get('grid_offset_y', 0))
-            start_x = x_abs + first_x_off + gx_off + offset_x
-            start_y = y_abs + first_y_off + gy_off + offset_y
+            # Cleaning grid is anchored to global anchor, not per-grid offsets.
+            start_x = x_abs + offset_x
+            start_y = y_abs + offset_y
 
             for r in range(rows):
                 for c in range(cols):
