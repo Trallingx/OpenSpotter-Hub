@@ -88,6 +88,7 @@ GLOBAL_FIELDS: List[Field] = [
     Field("refilling_speed", "Refilling Speed", "mm", tab="Fluids"),
     Field("max_syringe_vol", "Maximum Syringe Volume", "uL", tab="Fluids"),
     Field("priming_vol", "Priming Volume", "uL", default=3.0, tab="Fluids"),
+    Field("drop_extra_aspirate", "Drop Extra Aspirate", "x spot vol", default=0.0, tab="Fluids"),
 
     Field("max_syringe_mm", "Max Syringe MM (Rinse)", "mm", default=50.0, tab="Utilities"),
     Field("min_syringe_mm", "Min Syringe MM (Rinse)", "mm", default=0.0, tab="Utilities"),
@@ -130,8 +131,11 @@ CLEANING_FIELDS: List[Field] = [
     Field("pitch_x_cleaning", "X step size", "mm"),
     Field("pitch_y_cleaning", "Y step size", "mm"),
     Field("dispense_vol_cleaning", "Dispense volume cleaning", "uL"),
+    Field("droplet_forming_time_cleaning", "Droplet forming time", "s", default=0.5),
     Field("grid_offset_x_cleaning", "Grid offset X", "mm"),
     Field("grid_offset_y_cleaning", "Grid offset Y", "mm"),
+    Field("x_relative_increase", "X Relative Increase", "mm", default=0.0),
+    Field("y_relative_increase", "Y Relative Increase", "mm", default=0.0),
     Field("spots_before_cleaning", "Spots before cleaning", "int"),
     Field("final_rinse_cycles", "Final Rinse Cycles", "int", default=1),
 ]

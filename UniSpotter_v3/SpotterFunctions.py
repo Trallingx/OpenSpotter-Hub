@@ -162,6 +162,8 @@ def write_generation_settings_file(gcode_path, settings_snapshot):
     for grid_data in grid_settings:
         grid_number = grid_data.get("grid_number", "?")
         lines.append(f"[grid_{grid_number}]")
+        lines.append(f"grid_name={grid_data.get('grid_name', f'Grid {grid_number}')}")
+        lines.append(f"grid_color={grid_data.get('grid_color', 'green')}")
 
         for section_name in ("grid", "cleaning", "washing"):
             section = grid_data.get(section_name, {})
@@ -174,6 +176,7 @@ def write_generation_settings_file(gcode_path, settings_snapshot):
         lines.append(f"washing_enabled={grid_data.get('washing_enabled', False)}")
         lines.append(f"wash_after_loading={grid_data.get('wash_after_loading', False)}")
         lines.append(f"final_rinse_enabled={grid_data.get('final_rinse_enabled', False)}")
+        lines.append(f"final_rinse_add_cleaning_grid={grid_data.get('final_rinse_add_cleaning_grid', False)}")
         lines.append("")
 
     with open(settings_path, "w") as file:

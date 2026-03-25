@@ -133,6 +133,7 @@ def save_file(self):
     refilling_speed = float(entry_dict['refilling_speed'])
 
     max_syringe_vol = float(entry_dict['max_syringe_vol'])
+    drop_extra_aspirate = float(entry_dict.get('drop_extra_aspirate', 0.0))
     max_syringe_mm = float(entry_dict.get('max_syringe_mm', 50.0))
     min_syringe_mm = float(entry_dict.get('min_syringe_mm', 0.0))
 
@@ -199,6 +200,8 @@ def save_file(self):
 
             settings_snapshot["grid_settings"].append({
                 "grid_number": grid_number,
+                "grid_name": grid_obj.get_grid_name() if hasattr(grid_obj, 'get_grid_name') else f"Grid {grid_number}",
+                "grid_color": grid_obj.get_grid_color() if hasattr(grid_obj, 'get_grid_color') else "green",
                 "grid": dict(grid_entry_dict),
                 "cleaning": dict(cleaning_entry_dict),
                 "washing": dict(washing_entry_dict),
@@ -206,6 +209,7 @@ def save_file(self):
                 "washing_enabled": bool(grid_obj.washing_enabled.get()),
                 "wash_after_loading": bool(grid_obj.wash_after_loading_enabled.get()),
                 "final_rinse_enabled": bool(grid_obj.final_rinse_enabled.get()),
+                "final_rinse_add_cleaning_grid": bool(grid_obj.final_rinse_add_cleaning_grid.get()),
             })
 
             rows = int(grid_entry_dict['rows'])
@@ -244,15 +248,23 @@ def save_file(self):
             # Include one cleaning grid cycle in refill planning when cleaning is enabled.
             main_grid_fill = rows * cols * extrude
             cleaning_grid_fill = 0.0
+            base_spot_volume = extrude + max(0.0, row_add_volume)
             if bool(grid_obj.cleaning_enabled.get()):
                 cleaning_rows = int(cleaning_entry_dict.get('rows_cleaning', 0))
                 cleaning_cols = int(cleaning_entry_dict.get('cols_cleaning', 0))
                 cleaning_dispense_vol = float(cleaning_entry_dict.get('dispense_vol_cleaning', 0.0))
                 cleaning_grid_fill = cleaning_rows * cleaning_cols * cleaning_dispense_vol
+                base_spot_volume = max(base_spot_volume, cleaning_dispense_vol)
 
-            total_fill = min(max_syringe_vol, main_grid_fill + cleaning_grid_fill)
+            # Reserve = one spot + configurable extra multiplier * spot volume.
+            reserve_multiplier = 1.0 + max(0.0, drop_extra_aspirate)
+            reserve_fill = base_spot_volume * reserve_multiplier
+
+            # Add reserve to avoid borderline reloads on last spots.
+            total_fill = min(max_syringe_vol, main_grid_fill + cleaning_grid_fill + reserve_fill)
 
             priming_vol = float(entry_dict['priming_vol'])
+            cleaning_cycle_counter = [0]
 
             # Generate and write the normal grid
             generate_grid(
@@ -289,8 +301,9 @@ def save_file(self):
                 row_start_wait=row_start_wait,
                 syringe_aspirate_wait=syringe_aspirate_wait,
                 syringe_prime_wait=syringe_prime_wait,
-                cleaning_anchor_x=x_abs,
-                cleaning_anchor_y=y_abs,
+                cleaning_anchor_x=x_offset,
+                cleaning_anchor_y=y_offset,
+                cleaning_cycle_counter=cleaning_cycle_counter,
             )
 
             # emptying syringe
@@ -319,8 +332,8 @@ def save_file(self):
                 auto_cleaning_grid(
                     grid_obj,
                     file,
-                    x_abs,
-                    y_abs,
+                    x_offset,
+                    y_offset,
                     z_contact,
                     z_movement_pos_low,
                     z_movement_pos_high,
@@ -331,6 +344,7 @@ def save_file(self):
                     refilling_speed=refilling_speed,
                     syringe_tracker=syringe_leftovers,
                     row_start_wait=row_start_wait,
+                    cleaning_cycle_counter=cleaning_cycle_counter,
                 )
 
             loop_counter = loop_counter + 1

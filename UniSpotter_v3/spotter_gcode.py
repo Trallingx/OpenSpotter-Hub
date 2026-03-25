@@ -86,6 +86,7 @@ def generate_grid(
     syringe_prime_wait=2.0,
     cleaning_anchor_x=None,
     cleaning_anchor_y=None,
+    cleaning_cycle_counter=None,
 ):
     if washing_spot_counter is None:
         washing_spot_counter = [0]
@@ -95,6 +96,8 @@ def generate_grid(
         cleaning_anchor_x = x_offset
     if cleaning_anchor_y is None:
         cleaning_anchor_y = y_offset
+    if cleaning_cycle_counter is None:
+        cleaning_cycle_counter = [0]
 
     def reset_washing_counter():
         washing_spot_counter[0] = 0
@@ -117,7 +120,8 @@ def generate_grid(
     def ensure_loaded(required_mm=0.0):
         """Reload syringe when remaining plunger travel is insufficient."""
         did_reload = False
-        if syringe_tracker[0] <= 0.0 or syringe_tracker[0] < required_mm:
+        eps = 1e-6
+        if syringe_tracker[0] <= eps or (syringe_tracker[0] + eps) < required_mm:
             did_reload = True
             file.write(f'G0 Z{z_movement_pos_high} F{adcent_speed}\n')
             loading_syringe(
@@ -151,6 +155,7 @@ def generate_grid(
                     z_movement_pos_high,
                     syringe_tracker=syringe_tracker,
                     row_start_wait=row_start_wait,
+                    cleaning_cycle_counter=cleaning_cycle_counter,
                 )
         return did_reload
 
@@ -210,6 +215,7 @@ def generate_grid(
                             z_movement_pos_high,
                             syringe_tracker=syringe_tracker,
                             row_start_wait=row_start_wait,
+                            cleaning_cycle_counter=cleaning_cycle_counter,
                         )
 
     if grid_obj.washing_enabled.get():
@@ -316,6 +322,7 @@ def auto_cleaning_grid(
     z_high=40,
     syringe_tracker=None,
     row_start_wait=0.2,
+    cleaning_cycle_counter=None,
 ):
     cleaning_entry_dict = read_entries_as_dict(grid_obj.cleaning_entry, CLEANING_FIELDS)
 
@@ -325,17 +332,24 @@ def auto_cleaning_grid(
     cleaning_y_shift = float(cleaning_entry_dict['pitch_y_cleaning'])
     cleaning_x_offset = float(cleaning_entry_dict['grid_offset_x_cleaning'])
     cleaning_y_offset = float(cleaning_entry_dict['grid_offset_y_cleaning'])
+    x_relative_increase = float(cleaning_entry_dict.get('x_relative_increase', 0.0))
+    y_relative_increase = float(cleaning_entry_dict.get('y_relative_increase', 0.0))
     cleaning_dispense_vol = float(cleaning_entry_dict['dispense_vol_cleaning'])
+    cleaning_droplet_wait_time = float(cleaning_entry_dict.get('droplet_forming_time_cleaning', 0.5))
+
+    cycle_index = cleaning_cycle_counter[0] if cleaning_cycle_counter is not None else 0
+    anchor_x_shifted = anchor_x + (cycle_index * x_relative_increase)
+    anchor_y_shifted = anchor_y + (cycle_index * y_relative_increase)
 
     file.write("\n\n; Create cleaning sequence\n")
 
     cleaning_coordinates = create_coordinates(
         cleaning_rows,
         cleaning_cols,
-        anchor_x,
+        anchor_x_shifted,
         cleaning_x_offset,
         cleaning_x_shift,
-        anchor_y,
+        anchor_y_shifted,
         cleaning_y_offset,
         cleaning_y_shift,
     )
@@ -347,14 +361,17 @@ def auto_cleaning_grid(
         if remainder == 0:
             file.write(f"WAIT S={row_start_wait}\n")
 
-        file.write(f'DISPENSE MM={cleaning_dispense_mm} SPEED={dispensing_speed} RELATIVE=1\n')
+        file.write(f'DISPENSE MM={cleaning_dispense_mm} SPEED={dispensing_speed} RELATIVE=1\nWAIT S={cleaning_droplet_wait_time}\n')
         if syringe_tracker is not None:
             syringe_tracker[0] = max(0.0, syringe_tracker[0] - cleaning_dispense_mm)
 
         file.write(f'G0 Z{z_contact} F{decent_speed} ;position for liquid contact\n')
         file.write(f'G0 Z{z_movement_pos_low} F{adcent_speed}\n')
 
-    file.write(f'G0 Z{z_movement_pos_high} F{adcent_speed}\n')
+    #file.write(f'G0 Z{z_movement_pos_high} F{adcent_speed}\n')
+
+    if cleaning_cycle_counter is not None:
+        cleaning_cycle_counter[0] += 1
 
 def auto_washing(self, grid_obj, z_movement_pos_high, file, speed=5000, decent_speed=500, adcent_speed=5000,
                  dispensing_speed=500, refilling_speed=250):

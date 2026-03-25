@@ -6,9 +6,14 @@ import tkinter.ttk as ttk
 
 
 class Grid(object):
-    def __init__(self, gui, frame_row, frame_col, config, background, config_dir):
+    def __init__(self, gui, frame_row, frame_col, config, background, config_dir, grid_number=None, on_name_changed=None):
         self.gui = gui
         self.config_dir = config_dir
+        self.grid_number = grid_number
+        self.on_name_changed = on_name_changed
+        self.grid_name_var = tk.StringVar()
+        self.grid_color_var = tk.StringVar()
+        self.default_color = background
         self.grid_entry = None
         self.input_frame = None
         self.grid_entry = []
@@ -22,6 +27,31 @@ class Grid(object):
         self.frame_row = frame_row
         self.frame_col = frame_col
         self.create_grid(config, background)
+
+    def get_grid_name(self):
+        value = self.grid_name_var.get().strip()
+        if value:
+            return value
+        if self.grid_number is not None:
+            return f"Grid {self.grid_number}"
+        return "Grid"
+
+    def set_grid_name(self, name):
+        self.grid_name_var.set(str(name).strip())
+
+    def get_grid_color(self):
+        value = self.grid_color_var.get().strip()
+        return value if value else self.default_color
+
+    def set_grid_color(self, color):
+        self.grid_color_var.set(str(color).strip())
+
+    def _handle_grid_name_change(self, *_):
+        if callable(self.on_name_changed):
+            try:
+                self.on_name_changed(self.get_grid_name())
+            except Exception:
+                pass
 
         
 
@@ -138,13 +168,71 @@ class Grid(object):
                 return value.strip().lower() in ("1", "true", "yes", "on")
             return default
         
+        default_grid_name = grid_defaults.get(
+            "grid_name",
+            f"Grid {self.grid_number}" if self.grid_number is not None else "Grid"
+        )
+        self.grid_name_var.set(str(default_grid_name))
+        self.grid_name_var.trace_add("write", self._handle_grid_name_change)
+
+        grid_name_label = tk.Label(
+            self.grid_input_frame,
+            text="Grid Name",
+            bg=COLORS['bg_secondary'], fg=COLORS['text_primary'],
+            font=FONTS['small']
+        )
+        grid_name_entry = tk.Entry(
+            self.grid_input_frame,
+            textvariable=self.grid_name_var,
+            bd=0, relief='flat',
+            bg=COLORS['bg_tertiary'], fg=COLORS['accent'],
+            font=(FONTS['small'][0], FONTS['small'][1], 'bold'),
+            insertbackground=COLORS['accent']
+        )
+        grid_name_label.grid(row=1, column=0, sticky="WE", pady=4, padx=8)
+        grid_name_entry.grid(row=1, column=1, sticky="WE", padx=4, pady=4)
+
+        color_options = ["green", "orange", "blue", "goldenrod", "purple", "brown", "red", "cyan", "magenta", "black"]
+        default_grid_color = str(grid_defaults.get("grid_color", self.default_color))
+        if default_grid_color not in color_options:
+            color_options.append(default_grid_color)
+        self.grid_color_var.set(default_grid_color)
+
+        grid_color_label = tk.Label(
+            self.grid_input_frame,
+            text="Grid Color",
+            bg=COLORS['bg_secondary'], fg=COLORS['text_primary'],
+            font=FONTS['small']
+        )
+        grid_color_combo = ttk.Combobox(
+            self.grid_input_frame,
+            values=color_options,
+            textvariable=self.grid_color_var,
+            state="readonly",
+            font=FONTS['small']
+        )
+        grid_color_label.grid(row=2, column=0, sticky="WE", pady=4, padx=8)
+        grid_color_combo.grid(row=2, column=1, sticky="WE", padx=4, pady=4)
+
+        def _notify_color_change(_event=None):
+            try:
+                if hasattr(self.gui, 'canvas_drawer') and self.gui.canvas_drawer:
+                    self.gui.canvas_drawer._poll()
+            except Exception:
+                pass
+
+        grid_color_combo.bind("<<ComboboxSelected>>", _notify_color_change)
+
         create_labels(
             GRID_FIELDS,
             grid_defaults,
             self.grid_entry,
             self.grid_input_frame,
-            self.gui
+            self.gui,
+            start_row=3,
             )
+
+        self._handle_grid_name_change()
 
         # Add checkbox to enable/disable cleaning grid at row 1
         self.cleaning_enabled = tk.BooleanVar(

@@ -1,7 +1,8 @@
 import os
 import traceback
+import json
 
-from tkinter import messagebox
+from tkinter import messagebox, filedialog
 import tkinter as tk
 from tkinter.ttk import Notebook, Style, Label
 from PIL import ImageTk, Image
@@ -178,6 +179,8 @@ class DropletGui(tk.Tk):
         self.disp_d2_entry.insert(0, '1.2')
         self.disp_d2_entry.pack(side='left', padx=(2, 8))
 
+        self._load_canvas_parameter_defaults()
+
         # ========== RIGHT FRAME: Global Configuration and Pictures ==========
         self.right_frame = tk.Frame(self.main_frame, bg=COLORS['bg_primary'])
         self.right_frame.grid(row=0, column=2, sticky='nsew', padx=5, pady=5)
@@ -325,11 +328,11 @@ class DropletGui(tk.Tk):
                                    activebackground='#ff6b6b', activeforeground='white')
         remove_grid_button.pack(side='top', padx=2, pady=2, fill='x')
 
-        check_input_button = tk.Button(btn_frame, text="check input", command=lambda: self._run_action(self.check_inputs, "Check Input"),
+        load_config_button = tk.Button(btn_frame, text="load config", command=lambda: self._run_action(self.load_generation_config, "Load Config"),
                                    bg=COLORS['accent'], fg=COLORS['bg_primary'], font=FONTS['normal'],
                                    relief='flat', bd=0, padx=12, pady=6, cursor='hand2',
                                    activebackground='#00ffff', activeforeground=COLORS['bg_primary'])
-        check_input_button.pack(side='top', padx=2, pady=2, fill='x')
+        load_config_button.pack(side='top', padx=2, pady=2, fill='x')
 
         create_gcode_button = tk.Button(btn_frame, text="create G-code", command=lambda: self._run_action(self.save_file, "Create G-code"),
                                     bg=COLORS['accent'], fg=COLORS['bg_primary'], font=FONTS['normal'],
@@ -357,6 +360,13 @@ class DropletGui(tk.Tk):
     def _iter_grids(self):
         for grid_number in sorted(self.grid_tab_dict.keys()):
             yield grid_number, self.grid_tab_dict[grid_number]
+
+    def _update_grid_tab_title(self, grid_number, title):
+        tab_index = grid_number - 1
+        if tab_index < 0 or tab_index >= len(self.grid_tabs.tabs()):
+            return
+        cleaned = str(title).strip() or f"Grid {grid_number}"
+        self.grid_tabs.tab(tab_index, text=cleaned)
 
     def _get_max_grid_count(self):
         default_max = 6
@@ -396,10 +406,13 @@ class DropletGui(tk.Tk):
             config_file,
             grid_colors[(grid_number - 1) % len(grid_colors)],
             self.config_dir,
+            grid_number=grid_number,
+            on_name_changed=lambda name, gn=grid_number: self._update_grid_tab_title(gn, name),
         )
         
         self.grid_tab_dict[grid_number] = grid_obj
         self.grid_count = len(self.grid_tab_dict)
+        self._update_grid_tab_title(grid_number, grid_obj.get_grid_name())
 
     def subtract_grid(self):
         """Remove the last grid tab."""
@@ -427,6 +440,7 @@ class DropletGui(tk.Tk):
 
         # Convert global entries to dict
         global_dict = entries_to_dict(self.entry, GLOBAL_FIELDS)
+        global_dict.update(self._get_canvas_parameter_values())
         save_defaults(os.path.join(self.config_dir, "config_global.json"), global_dict)
 
         # Save each grid using dicts for grid, cleaning, washing
@@ -437,6 +451,8 @@ class DropletGui(tk.Tk):
             cleaning_dict = entries_to_dict(grid_obj.cleaning_entry, CLEANING_FIELDS)
             washing_dict = entries_to_dict(grid_obj.washing_entry, WASHING_FIELDS)
             grid_state_dict = {
+                "grid_name": grid_obj.get_grid_name(),
+                "grid_color": grid_obj.get_grid_color(),
                 "cleaning_enabled": bool(grid_obj.cleaning_enabled.get()),
                 "washing_enabled": bool(grid_obj.washing_enabled.get()),
                 "wash_after_loading": bool(grid_obj.wash_after_loading_enabled.get()),
@@ -446,6 +462,44 @@ class DropletGui(tk.Tk):
 
             save_defaults(cfg_path, grid_dict, cleaning_dict, washing_dict, grid_state_dict)
             print(f"✅ Saved grid {grid_number} defaults to {cfg_path}")
+
+    def _get_canvas_parameter_values(self):
+        def _safe_float(entry_widget, fallback):
+            try:
+                return float(entry_widget.get())
+            except Exception:
+                return fallback
+
+        return {
+            "disp_v1": _safe_float(self.disp_v1_entry, 0.04),
+            "disp_d1": _safe_float(self.disp_d1_entry, 0.6),
+            "disp_v2": _safe_float(self.disp_v2_entry, 0.08),
+            "disp_d2": _safe_float(self.disp_d2_entry, 1.2),
+        }
+
+    def _load_canvas_parameter_defaults(self):
+        cfg_path = os.path.join(self.config_dir, "config_global.json")
+        if not os.path.exists(cfg_path):
+            return
+
+        try:
+            with open(cfg_path, "r") as f:
+                data = json.load(f)
+        except Exception:
+            return
+
+        if not isinstance(data, dict):
+            return
+
+        def _set_if_present(entry_widget, key):
+            if key in data:
+                entry_widget.delete(0, tk.END)
+                entry_widget.insert(0, str(data[key]))
+
+        _set_if_present(self.disp_v1_entry, "disp_v1")
+        _set_if_present(self.disp_d1_entry, "disp_d1")
+        _set_if_present(self.disp_v2_entry, "disp_v2")
+        _set_if_present(self.disp_d2_entry, "disp_d2")
 
 
 
@@ -532,6 +586,25 @@ class DropletGui(tk.Tk):
 
         exceeded = []
 
+        rect_x = x_abs + first_x_off
+        rect_y = y_abs + first_y_off
+        inner_vis_x = rect_x + (rect_w - inner_w) / 2.0
+        inner_vis_y = rect_y + (rect_h - inner_h) / 2.0
+        inner_origin_x = inner_vis_x + inset_lb
+        inner_origin_y = inner_vis_y + inset_lb
+        inner_max_x = inner_origin_x + inner_w
+        inner_max_y = inner_origin_y + inner_h
+
+        def exceeds_acceptance(start_x, start_y, width, height):
+            end_x = start_x + width
+            end_y = start_y + height
+            return (
+                start_x < inner_origin_x or
+                start_y < inner_origin_y or
+                end_x > inner_max_x or
+                end_y > inner_max_y
+            )
+
         # Helper to check a grid safely
         def check_grid_obj(grid_obj, grid_idx):
             try:
@@ -553,23 +626,60 @@ class DropletGui(tk.Tk):
             grid_width = (cols - 1) * x_step if cols > 0 else 0.0
             grid_height = (rows - 1) * y_step if rows > 0 else 0.0
 
-            # compute absolute rectangle inner origin (visual center, logical inset applied below)
-            rect_x = x_abs + first_x_off
-            rect_y = y_abs + first_y_off
-            inner_vis_x = rect_x + (rect_w - inner_w) / 2.0
-            inner_vis_y = rect_y + (rect_h - inner_h) / 2.0
-            inner_origin_x = inner_vis_x + inset_lb
-            inner_origin_y = inner_vis_y + inset_lb
-
             # grid absolute start/end positions
             start_abs_x = rect_x + grid_x_off
             start_abs_y = rect_y + grid_y_off
-            end_abs_x = start_abs_x + grid_width
-            end_abs_y = start_abs_y + grid_height
 
-            # if grid starts before inner origin or ends beyond inner origin + inner size -> exceeded
-            if start_abs_x < inner_origin_x or start_abs_y < inner_origin_y or end_abs_x > (inner_origin_x + inner_w) or end_abs_y > (inner_origin_y + inner_h):
-                exceeded.append(grid_idx)
+            if exceeds_acceptance(start_abs_x, start_abs_y, grid_width, grid_height):
+                exceeded.append(str(grid_idx))
+
+            # Cleaning grid uses same first-spot anchor and may shift each cleaning cycle.
+            if not getattr(grid_obj, 'cleaning_enabled', tk.BooleanVar()).get():
+                return
+
+            try:
+                cleaning_dict = entries_to_dict(grid_obj.cleaning_entry, CLEANING_FIELDS)
+                c_rows = int(cleaning_dict.get('rows_cleaning', 0))
+                c_cols = int(cleaning_dict.get('cols_cleaning', 0))
+                c_pitch_x = float(cleaning_dict.get('pitch_x_cleaning', 0.0))
+                c_pitch_y = float(cleaning_dict.get('pitch_y_cleaning', 0.0))
+                c_grid_x_off = float(cleaning_dict.get('grid_offset_x_cleaning', 0.0))
+                c_grid_y_off = float(cleaning_dict.get('grid_offset_y_cleaning', 0.0))
+                c_rel_x = float(cleaning_dict.get('x_relative_increase', 0.0))
+                c_rel_y = float(cleaning_dict.get('y_relative_increase', 0.0))
+            except Exception:
+                return
+
+            c_width = (c_cols - 1) * c_pitch_x if c_cols > 0 else 0.0
+            c_height = (c_rows - 1) * c_pitch_y if c_rows > 0 else 0.0
+
+            cycle_starts = [(rect_x + c_grid_x_off, rect_y + c_grid_y_off)]
+
+            if getattr(grid_obj, 'washing_enabled', tk.BooleanVar()).get():
+                try:
+                    washing_vals = read_entries(grid_obj.washing_entry)
+                    washing_after = int(washing_vals[5]) if len(washing_vals) > 5 else 0
+                except Exception:
+                    washing_after = 0
+
+                if washing_after > 0:
+                    total_spots = max(0, rows * cols)
+                    washing_spot_counter = 0
+                    cycle_index = 1
+                    for _ in range(total_spots):
+                        washing_spot_counter += 1
+                        if washing_spot_counter % washing_after == 0:
+                            cycle_starts.append((
+                                rect_x + c_grid_x_off + cycle_index * c_rel_x,
+                                rect_y + c_grid_y_off + cycle_index * c_rel_y,
+                            ))
+                            cycle_index += 1
+                            washing_spot_counter = 0
+
+            for start_cx, start_cy in cycle_starts:
+                if exceeds_acceptance(start_cx, start_cy, c_width, c_height):
+                    exceeded.append(f"{grid_idx} (cleaning)")
+                    break
 
         # Check each existing grid independently
         for grid_number, grid_obj in self._iter_grids():
@@ -579,7 +689,199 @@ class DropletGui(tk.Tk):
             if len(exceeded) == 1:
                 open_secondary_window(f"Grid {exceeded[0]} exceeds acceptance size of 19x39 mm")
             else:
-                open_secondary_window(f"Grids {', '.join(map(str, exceeded))} exceed acceptance size of 19x39 mm")
+                open_secondary_window(f"Grids {', '.join(exceeded)} exceed acceptance size of 19x39 mm")
+
+    def _parse_bool(self, value):
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return value != 0
+        if isinstance(value, str):
+            return value.strip().lower() in ("1", "true", "yes", "on")
+        return False
+
+    def _coerce_value(self, raw, unit):
+        if unit == "int":
+            return int(float(raw))
+        if unit in ("mm", "uL", "s", "mm/s"):
+            return float(raw)
+        return raw
+
+    def _set_entry_value(self, entry_widget, value):
+        original_state = str(entry_widget.cget('state'))
+        if original_state == 'disabled':
+            entry_widget.config(state='normal')
+        entry_widget.delete(0, tk.END)
+        entry_widget.insert(0, str(value))
+        if original_state == 'disabled':
+            entry_widget.config(state='disabled')
+
+    def _set_field_entries(self, entry_widgets, fields, values_dict):
+        for entry_widget, field in zip(entry_widgets, fields):
+            if field.key in values_dict:
+                self._set_entry_value(entry_widget, values_dict[field.key])
+
+    def _reset_grids(self):
+        # Remove all tabs and clear map so we can rebuild exact saved state.
+        for tab_id in self.grid_tabs.tabs():
+            self.grid_tabs.forget(tab_id)
+        self.grid_tab_dict.clear()
+        self.grid_count = 0
+
+    def _parse_generation_settings_file(self, filepath):
+        result = {
+            "global_settings": {},
+            "grid_settings": [],
+        }
+
+        global_field_map = {f.key: f for f in GLOBAL_FIELDS}
+        grid_field_map = {f.key: f for f in GRID_FIELDS}
+        cleaning_field_map = {f.key: f for f in CLEANING_FIELDS}
+        washing_field_map = {f.key: f for f in WASHING_FIELDS}
+
+        current_section = None
+        current_subsection = None
+        current_grid = None
+
+        with open(filepath, "r") as f:
+            for raw_line in f:
+                line = raw_line.rstrip('\n')
+                stripped = line.strip()
+                if not stripped:
+                    continue
+
+                if stripped.startswith('[') and stripped.endswith(']'):
+                    current_section = stripped[1:-1]
+                    current_subsection = None
+                    if current_section.startswith('grid_'):
+                        current_grid = {
+                            "grid": {},
+                            "cleaning": {},
+                            "washing": {},
+                        }
+                        result["grid_settings"].append(current_grid)
+                    else:
+                        current_grid = None
+                    continue
+
+                if current_section == "global_settings":
+                    if '=' in stripped:
+                        key, value = stripped.split('=', 1)
+                        key = key.strip()
+                        value = value.strip()
+                        field = global_field_map.get(key)
+                        if field:
+                            try:
+                                result["global_settings"][key] = self._coerce_value(value, field.unit)
+                            except Exception:
+                                result["global_settings"][key] = value
+                    continue
+
+                if not (current_section and current_section.startswith('grid_') and current_grid is not None):
+                    continue
+
+                if stripped in ("grid:", "cleaning:", "washing:"):
+                    current_subsection = stripped[:-1]
+                    continue
+
+                if '=' not in stripped:
+                    continue
+
+                key, value = stripped.split('=', 1)
+                key = key.strip()
+                value = value.strip()
+
+                if key in (
+                    "grid_name",
+                    "grid_color",
+                    "cleaning_enabled",
+                    "washing_enabled",
+                    "wash_after_loading",
+                    "final_rinse_enabled",
+                    "final_rinse_add_cleaning_grid",
+                ):
+                    if key in ("grid_name", "grid_color"):
+                        current_grid[key] = value
+                    else:
+                        current_grid[key] = self._parse_bool(value)
+                    continue
+
+                if current_subsection == "grid":
+                    field = grid_field_map.get(key)
+                    if field:
+                        try:
+                            current_grid["grid"][key] = self._coerce_value(value, field.unit)
+                        except Exception:
+                            current_grid["grid"][key] = value
+                elif current_subsection == "cleaning":
+                    field = cleaning_field_map.get(key)
+                    if field:
+                        try:
+                            current_grid["cleaning"][key] = self._coerce_value(value, field.unit)
+                        except Exception:
+                            current_grid["cleaning"][key] = value
+                elif current_subsection == "washing":
+                    field = washing_field_map.get(key)
+                    if field:
+                        try:
+                            current_grid["washing"][key] = self._coerce_value(value, field.unit)
+                        except Exception:
+                            current_grid["washing"][key] = value
+
+        return result
+
+    def load_generation_config(self):
+        filepath = filedialog.askopenfilename(
+            title="Load generation settings",
+            initialdir=self.config_dir,
+            filetypes=[("Settings snapshot", "*_settings.txt"), ("Text files", "*.txt"), ("All files", "*.*")],
+        )
+        if not filepath:
+            return
+
+        parsed = self._parse_generation_settings_file(filepath)
+
+        global_settings = parsed.get("global_settings", {})
+        if global_settings:
+            self._set_field_entries(self.entry, GLOBAL_FIELDS, global_settings)
+
+        grid_settings = parsed.get("grid_settings", [])
+        self._reset_grids()
+        for _ in range(len(grid_settings)):
+            self.instance_grid()
+
+        for idx, grid_state in enumerate(grid_settings, start=1):
+            grid_obj = self.grid_tab_dict.get(idx)
+            if grid_obj is None:
+                continue
+
+            self._set_field_entries(grid_obj.grid_entry, GRID_FIELDS, grid_state.get("grid", {}))
+            self._set_field_entries(grid_obj.cleaning_entry, CLEANING_FIELDS, grid_state.get("cleaning", {}))
+            self._set_field_entries(grid_obj.washing_entry, WASHING_FIELDS, grid_state.get("washing", {}))
+
+            if "grid_name" in grid_state:
+                grid_obj.set_grid_name(grid_state.get("grid_name", f"Grid {idx}"))
+            if "grid_color" in grid_state:
+                grid_obj.set_grid_color(grid_state.get("grid_color", "green"))
+            self._update_grid_tab_title(idx, grid_obj.get_grid_name())
+
+            grid_obj.cleaning_enabled.set(bool(grid_state.get("cleaning_enabled", False)))
+            grid_obj.washing_enabled.set(bool(grid_state.get("washing_enabled", False)))
+            grid_obj.wash_after_loading_enabled.set(bool(grid_state.get("wash_after_loading", False)))
+            grid_obj.final_rinse_enabled.set(bool(grid_state.get("final_rinse_enabled", False)))
+            grid_obj.final_rinse_add_cleaning_grid.set(bool(grid_state.get("final_rinse_add_cleaning_grid", False)))
+
+            grid_obj._toggle_cleaning_inputs()
+            grid_obj._toggle_washing_inputs()
+            grid_obj._toggle_final_rinse_inputs()
+
+        # Respect current lock state after values are loaded.
+        self._update_global_fields_state()
+        try:
+            if hasattr(self, 'canvas_drawer') and self.canvas_drawer:
+                self.canvas_drawer.refresh()
+        except Exception:
+            pass
 
 def open_secondary_window(text, title="Notice"):
     secondary_window = tk.Toplevel()

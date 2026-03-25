@@ -45,7 +45,13 @@ class CanvasDrawer:
         for idx, grid_obj in sorted(self.gui.grid_tab_dict.items()):
             if grid_obj and hasattr(grid_obj, 'grid_entry'):
                 vals = read_entries_as_dict(grid_obj.grid_entry, GRID_FIELDS)
-                grids.append((idx, vals))
+                grid_color = "green"
+                if hasattr(grid_obj, 'get_grid_color'):
+                    try:
+                        grid_color = grid_obj.get_grid_color()
+                    except Exception:
+                        grid_color = "green"
+                grids.append((idx, vals, grid_color))
 
                 if getattr(grid_obj, 'cleaning_enabled', tk.BooleanVar()).get():
                     vals_clean = read_entries_as_dict(grid_obj.cleaning_entry, CLEANING_FIELDS)
@@ -103,7 +109,59 @@ class CanvasDrawer:
         # --- Collect points and grid extents ---
         points = []
         grid_extents = []
-        for g_idx, vals in grids_list:
+        washing_by_grid = {idx: vals for idx, vals in washing_data_list}
+        cleaning_by_grid = {idx: vals for idx, vals in cleaning_grids_list}
+
+        def _cleaning_cycle_origins_for_grid(g_idx, rows, cols):
+            cleaning_vals = cleaning_by_grid.get(g_idx)
+            if not cleaning_vals:
+                return []
+
+            try:
+                offset_x = float(cleaning_vals.get('grid_offset_x_cleaning', 0.0))
+                offset_y = float(cleaning_vals.get('grid_offset_y_cleaning', 0.0))
+                rel_x = float(cleaning_vals.get('x_relative_increase', 0.0))
+                rel_y = float(cleaning_vals.get('y_relative_increase', 0.0))
+            except Exception:
+                return []
+
+            total_spots = max(0, int(rows) * int(cols))
+            cycle_origins = []
+
+            # Cleaning cycle counter starts at 0 per grid; first cleaning occurs before spots.
+            cycle_index = 0
+            cycle_origins.append((x_abs + first_x_off + offset_x + cycle_index * rel_x, y_abs + first_y_off + offset_y + cycle_index * rel_y, cycle_index))
+            cycle_index += 1
+
+            washing_vals = washing_by_grid.get(g_idx)
+            if not washing_vals:
+                return cycle_origins
+
+            try:
+                washing_after = int(float(washing_vals.get('washing_after_x_spots', 0)))
+            except Exception:
+                washing_after = 0
+
+            if washing_after <= 0:
+                return cycle_origins
+
+            # Mirror generate_grid logic: increment counter each spot, trigger on modulo, then reset.
+            washing_spot_counter = 0
+            for _ in range(total_spots):
+                washing_spot_counter += 1
+                if washing_spot_counter % washing_after == 0:
+                    cycle_origins.append((
+                        x_abs + first_x_off + offset_x + cycle_index * rel_x,
+                        y_abs + first_y_off + offset_y + cycle_index * rel_y,
+                        cycle_index,
+                    ))
+                    cycle_index += 1
+                    washing_spot_counter = 0
+
+            return cycle_origins
+
+        cleaning_preview_points = []
+        for g_idx, vals, grid_color in grids_list:
             rows = int(vals.get('rows', 0))
             cols = int(vals.get('cols', 0))
             x_step = float(vals.get('pitch_x', 0))
@@ -128,15 +186,30 @@ class CanvasDrawer:
 
             for r in range(rows):
                 for c in range(cols):
-                    points.append((start_x + c * x_step, start_y + r * y_step, g_idx, dispense))
+                    points.append((start_x + c * x_step, start_y + r * y_step, g_idx, dispense, grid_color))
+
+            cleaning_vals = cleaning_by_grid.get(g_idx)
+            if cleaning_vals:
+                c_rows = int(float(cleaning_vals.get('rows_cleaning', 0)))
+                c_cols = int(float(cleaning_vals.get('cols_cleaning', 0)))
+                c_pitch_x = float(cleaning_vals.get('pitch_x_cleaning', 0.0))
+                c_pitch_y = float(cleaning_vals.get('pitch_y_cleaning', 0.0))
+                for cycle_start_x, cycle_start_y, cycle_index in _cleaning_cycle_origins_for_grid(g_idx, rows, cols):
+                    for cr in range(c_rows):
+                        for cc in range(c_cols):
+                            cleaning_preview_points.append((
+                                cycle_start_x + cc * c_pitch_x,
+                                cycle_start_y + cr * c_pitch_y,
+                                cycle_index,
+                            ))
         # --- Determine canvas bounds ---
         purple_x1 = x_abs + anchor_off_x
         purple_y1 = y_abs + anchor_off_y
         purple_x2 = purple_x1 + purple_size
         purple_y2 = purple_y1 + purple_size
 
-        xs = ([p[0] for p in points] if points else []) + [x_abs, x_abs + rect_w, purple_x1, purple_x2] + [c[1] for c in container_list]
-        ys = ([p[1] for p in points] if points else []) + [y_abs, y_abs + rect_h, purple_y1, purple_y2] + [c[2] for c in container_list]
+        xs = ([p[0] for p in points] if points else []) + ([p[0] for p in cleaning_preview_points] if cleaning_preview_points else []) + [x_abs, x_abs + rect_w, purple_x1, purple_x2] + [c[1] for c in container_list]
+        ys = ([p[1] for p in points] if points else []) + ([p[1] for p in cleaning_preview_points] if cleaning_preview_points else []) + [y_abs, y_abs + rect_h, purple_y1, purple_y2] + [c[2] for c in container_list]
         minx, maxx = min(xs), max(xs)
         miny, maxy = min(ys), max(ys)
 
@@ -168,6 +241,11 @@ class CanvasDrawer:
             if g['x1'] < inner_x1 or g['y1'] < inner_y1 or g['x2'] > inner_x2 or g['y2'] > inner_y2:
                 exceed = True
                 break
+        if not exceed:
+            for cx, cy, _ in cleaning_preview_points:
+                if cx < inner_x1 or cy < inner_y1 or cx > inner_x2 or cy > inner_y2:
+                    exceed = True
+                    break
         if exceed and not getattr(self, '_last_exceed_state', False):
             self._show_exceed_popup()
         self._last_exceed_state = exceed
@@ -263,37 +341,42 @@ class CanvasDrawer:
             m, b = 0, 0.6
 
         # --- Draw grid points ---
-        color_cycle = ['green', 'orange', 'blue', 'goldenrod', 'purple', 'brown']
-        for x, y, g_idx, dispense in points:
+        for x, y, g_idx, dispense, grid_color in points:
             px = (x - self._origin_x) * effective_scale + self._pan_x
             py = c_h - ((y - self._origin_y) * effective_scale + self._pan_y)
             diam_mm = max(0, m * dispense + b)
             rad_px = min(max(1, int((diam_mm / 2) * effective_scale)), 80)
-            color = color_cycle[(g_idx - 1) % len(color_cycle)]
             self.canvas.create_oval(px - rad_px, py - rad_px, px + rad_px, py + rad_px,
-                                    fill=color, outline='')
+                                    fill=grid_color, outline='')
 
-        # --- Draw cleaning grids ---
-        for g_idx, cvals in cleaning_grids_list:
-            cleaning = {k: float(v) for k, v in cvals.items()}
-            rows, cols = int(cleaning.get('rows_cleaning', 0)), int(cleaning.get('cols_cleaning', 0))
-            if rows == 0 or cols == 0:
+        # --- Draw cleaning grids (cycle 0 solid, follow-up cycles faded) ---
+        for g_idx, vals, _grid_color in grids_list:
+            cleaning_vals = cleaning_by_grid.get(g_idx)
+            if not cleaning_vals:
                 continue
-            pitch_x, pitch_y = cleaning.get('pitch_x_cleaning', 0), cleaning.get('pitch_y_cleaning', 0)
-            offset_x, offset_y = cleaning.get('grid_offset_x_cleaning', 0), cleaning.get('grid_offset_y_cleaning', 0)
 
-            # Cleaning grid is anchored to global anchor, not per-grid offsets.
-            start_x = x_abs + offset_x
-            start_y = y_abs + offset_y
+            rows = int(vals.get('rows', 0))
+            cols = int(vals.get('cols', 0))
+            c_rows = int(float(cleaning_vals.get('rows_cleaning', 0)))
+            c_cols = int(float(cleaning_vals.get('cols_cleaning', 0)))
+            if c_rows <= 0 or c_cols <= 0:
+                continue
 
-            for r in range(rows):
-                for c in range(cols):
-                    cx = start_x + c * pitch_x
-                    cy = start_y + r * pitch_y
-                    px = (cx - self._origin_x) * effective_scale + self._pan_x
-                    py = c_h - ((cy - self._origin_y) * effective_scale + self._pan_y)
-                    s = max(2, int(0.08 * effective_scale))
-                    self.canvas.create_rectangle(px - s, py - s, px + s, py + s, fill='purple', outline='black')
+            c_pitch_x = float(cleaning_vals.get('pitch_x_cleaning', 0.0))
+            c_pitch_y = float(cleaning_vals.get('pitch_y_cleaning', 0.0))
+
+            for start_x, start_y, cycle_index in _cleaning_cycle_origins_for_grid(g_idx, rows, cols):
+                fill_color = '#7d3cb5' if cycle_index == 0 else '#cbb2e6'
+                outline_color = '#3d255a' if cycle_index == 0 else '#8f7aa8'
+
+                for r in range(c_rows):
+                    for c in range(c_cols):
+                        cx = start_x + c * c_pitch_x
+                        cy = start_y + r * c_pitch_y
+                        px = (cx - self._origin_x) * effective_scale + self._pan_x
+                        py = c_h - ((cy - self._origin_y) * effective_scale + self._pan_y)
+                        s = max(2, int(0.08 * effective_scale))
+                        self.canvas.create_rectangle(px - s, py - s, px + s, py + s, fill=fill_color, outline=outline_color)
 
         # --- Draw washing lines ---
         for g_idx, wvals in washing_data_list:
