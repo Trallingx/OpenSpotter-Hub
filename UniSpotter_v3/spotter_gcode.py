@@ -114,9 +114,11 @@ def generate_grid(
     if loading_container_obj is None:
         raise ValueError(f"Missing configuration for container {loading_container}")
 
-    def ensure_loaded():
-        """Reload syringe when no plunger travel remains."""
-        if syringe_tracker[0] <= 0.0:
+    def ensure_loaded(required_mm=0.0):
+        """Reload syringe when remaining plunger travel is insufficient."""
+        did_reload = False
+        if syringe_tracker[0] <= 0.0 or syringe_tracker[0] < required_mm:
+            did_reload = True
             file.write(f'G0 Z{z_movement_pos_high} F{adcent_speed}\n')
             loading_syringe(
                 file,
@@ -133,7 +135,11 @@ def generate_grid(
                 syringe_aspirate_wait=syringe_aspirate_wait,
                 syringe_prime_wait=syringe_prime_wait,
             )
-            reset_washing_counter()
+
+            if should_wash_after_loading():
+                    auto_washing(self, grid_obj, z_movement_pos_high, file)
+                    reset_washing_counter()
+
             if grid_obj.cleaning_enabled.get():
                 auto_cleaning_grid(
                     grid_obj,
@@ -146,25 +152,29 @@ def generate_grid(
                     syringe_tracker=syringe_tracker,
                     row_start_wait=row_start_wait,
                 )
-                reset_washing_counter()
+        return did_reload
+
+    def should_wash_after_loading():
+        if is_cleaning or not grid_obj:
+            return False
+        if not hasattr(grid_obj, 'washing_enabled') or not grid_obj.washing_enabled.get():
+            return False
+        if not hasattr(grid_obj, 'wash_after_loading_enabled'):
+            return False
+        return bool(grid_obj.wash_after_loading_enabled.get())
+
 
     if grid_obj.cleaning_enabled.get():
         ensure_loaded()
-        auto_cleaning_grid(
-            grid_obj,
-            file,
-            cleaning_anchor_x,
-            cleaning_anchor_y,
-            z_contact,
-            z_movement_pos_low,
-            z_movement_pos_high,
-            syringe_tracker=syringe_tracker,
-            row_start_wait=row_start_wait,
-        )
         reset_washing_counter()
 
     for i in range(rows * cols):
-        ensure_loaded()
+        current_extrude = extrude
+        if cols > 0 and i % cols == 0 and i != 0:
+            current_extrude += row_add_volume
+
+        extrude_mm = volume_to_mm(current_extrude)
+        ensure_loaded(required_mm=extrude_mm)
 
         line = 'G0 ' + coordinates[i] + f' F{speed}' + '\n'
         file.write(line)
@@ -173,11 +183,6 @@ def generate_grid(
         if i % cols == 0:
             file.write(f"WAIT S={row_start_wait}\n") # against oscillations at the start of rows
 
-        current_extrude = extrude
-        if cols > 0 and i % cols == 0 and i != 0:
-            current_extrude += row_add_volume
-
-        extrude_mm = volume_to_mm(current_extrude)
         file.write(f'DISPENSE MM={extrude_mm} SPEED={dispensing_speed} RELATIVE=1\nWAIT S={droplet_wait_time}\n')
         syringe_tracker[0] = max(0.0, syringe_tracker[0] - extrude_mm)
 
@@ -195,7 +200,6 @@ def generate_grid(
                     reset_washing_counter()
 
                     if grid_obj.cleaning_enabled.get():
-                        ensure_loaded()
                         auto_cleaning_grid(
                             grid_obj,
                             file,
@@ -207,7 +211,9 @@ def generate_grid(
                             syringe_tracker=syringe_tracker,
                             row_start_wait=row_start_wait,
                         )
-                        reset_washing_counter()
+
+    if grid_obj.washing_enabled.get():
+        auto_washing(self, grid_obj, z_movement_pos_high, file)
 
     return rows * cols
 
@@ -230,7 +236,7 @@ def loading_syringe(
     if container is None:
         raise ValueError("Loading container is not configured")
 
-    fill_mm = volume_to_mm(total_fill + priming_vol)
+    fill_mm = volume_to_mm(total_fill) + volume_to_mm(priming_vol)
     priming_mm = volume_to_mm(priming_vol)
     
     file.write(f'G0 X{container.x} Y{container.y} F{speed}\n')
@@ -243,7 +249,7 @@ def loading_syringe(
 
     if syringe_tracker is not None:
         # Track remaining plunger travel in mm after priming.
-        syringe_tracker[0] += volume_to_mm(total_fill)
+        syringe_tracker[0] = max(0.0, fill_mm - priming_mm)
 
 
 def emptying_syringe(
@@ -277,6 +283,12 @@ def emptying_syringe(
     
     if final_rinse_enabled:
         cycles = max(0, int(rinsing_cycles))
+        for _ in range(cycles):
+            file.write(f'ASPIRATE MM={max_syringe_mm} SPEED={dispensing_speed} ; rinse aspiration\n')
+            file.write(f'WAIT S={rinse_aspiration_wait}\n')
+            file.write(f'DISPENSE MM={min_syringe_mm} SPEED={dispensing_speed} ; rinse dispense\n')
+        file.write(f'WAIT S={rinse_final_wait}\n')
+        file.write(f'\nG0 Z{z_movement_pos_high} F{adcent_speed} ; dispensing leftovers\n')
         for _ in range(cycles):
             file.write(f'ASPIRATE MM={max_syringe_mm} SPEED={dispensing_speed} ; rinse aspiration\n')
             file.write(f'WAIT S={rinse_aspiration_wait}\n')

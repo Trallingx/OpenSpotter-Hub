@@ -439,6 +439,7 @@ class DropletGui(tk.Tk):
             grid_state_dict = {
                 "cleaning_enabled": bool(grid_obj.cleaning_enabled.get()),
                 "washing_enabled": bool(grid_obj.washing_enabled.get()),
+                "wash_after_loading": bool(grid_obj.wash_after_loading_enabled.get()),
                 "final_rinse_enabled": bool(grid_obj.final_rinse_enabled.get()),
                 "final_rinse_add_cleaning_grid": bool(grid_obj.final_rinse_add_cleaning_grid.get()),
             }

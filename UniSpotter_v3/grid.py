@@ -16,6 +16,7 @@ class Grid(object):
         self.washing_entry = []
         self.cleaning_widgets = []  # Store cleaning widgets for show/hide
         self.washing_widgets = []  # Store washing widgets for show/hide
+        self.wash_after_loading_widgets = []  # Store wash-after-loading widgets for show/hide
         self.final_rinse_widgets = []  # Store final rinse widgets for show/hide
         self.grid = None
         self.frame_row = frame_row
@@ -45,6 +46,13 @@ class Grid(object):
         is_enabled = self.washing_enabled.get()
         # Hide/show all washing input widgets except the checkbox itself
         for widget in self.washing_widgets[1:]:  # Skip the checkbox
+            if is_enabled:
+                widget.grid()
+            else:
+                widget.grid_remove()
+
+        # Keep wash-after-loading visible only when washing is enabled.
+        for widget in self.wash_after_loading_widgets:
             if is_enabled:
                 widget.grid()
             else:
@@ -226,6 +234,20 @@ class Grid(object):
             start_row=washing_start_row + 1,
             widgets_list=self.washing_widgets
             )
+
+        wash_after_loading_row = washing_start_row + 1 + len(WASHING_FIELDS)
+        self.wash_after_loading_enabled = tk.BooleanVar(
+            value=_to_bool(grid_defaults.get("wash_after_loading", False))
+        )
+        wash_after_loading_checkbox = tk.Checkbutton(
+            self.cleaning_input_frame,
+            text="Wash After Loading",
+            variable=self.wash_after_loading_enabled,
+            bg=COLORS['bg_secondary'], fg=COLORS['accent'], selectcolor=COLORS['bg_primary'], font=FONTS['normal'],
+            activebackground=COLORS['bg_secondary'], activeforeground=COLORS['accent']
+        )
+        wash_after_loading_checkbox.grid(row=wash_after_loading_row, column=0, columnspan=3, pady=8, padx=8, sticky="W")
+        self.wash_after_loading_widgets.append(wash_after_loading_checkbox)
 
         # Initially hide washing inputs
         self._toggle_washing_inputs()

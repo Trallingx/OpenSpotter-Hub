@@ -7,17 +7,17 @@
   "row_add_volume": 0.0,
   "loading_from": 5,
   "leftovers_into": 4,
-  "z_contact": 0.025,
+  "z_contact": 0.01,
   "droplet_forming_time": 0.1,
   "grid_offset_x": 110.0,
-  "grid_offset_y": 45.0,
+  "grid_offset_y": 65.0,
   "rows_cleaning": 2,
   "cols_cleaning": 10,
   "pitch_x_cleaning": 3.0,
   "pitch_y_cleaning": 2.0,
   "dispense_vol_cleaning": 0.05,
   "grid_offset_x_cleaning": 120.0,
-  "grid_offset_y_cleaning": 50.0,
+  "grid_offset_y_cleaning": 70.0,
   "spots_before_cleaning": 500,
   "final_rinse_cycles": 5,
   "washing_depth": -5.0,
@@ -31,5 +31,5 @@
   "washing_enabled": true,
   "wash_after_loading": false,
   "final_rinse_enabled": true,
-  "final_rinse_add_cleaning_grid": false
+  "final_rinse_add_cleaning_grid": true
 }

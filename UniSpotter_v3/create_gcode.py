@@ -204,6 +204,7 @@ def save_file(self):
                 "washing": dict(washing_entry_dict),
                 "cleaning_enabled": bool(grid_obj.cleaning_enabled.get()),
                 "washing_enabled": bool(grid_obj.washing_enabled.get()),
+                "wash_after_loading": bool(grid_obj.wash_after_loading_enabled.get()),
                 "final_rinse_enabled": bool(grid_obj.final_rinse_enabled.get()),
             })
 
@@ -240,12 +241,16 @@ def save_file(self):
                 raise ValueError(f"Container {emptying_container_id} is not configured for emptying")
 
             
-            # for second grid invert selection
-            total_fill = 0
-            if (rows * cols * extrude) >= max_syringe_vol:
-                total_fill = max_syringe_vol
-            else:
-                total_fill = rows * cols * extrude
+            # Include one cleaning grid cycle in refill planning when cleaning is enabled.
+            main_grid_fill = rows * cols * extrude
+            cleaning_grid_fill = 0.0
+            if bool(grid_obj.cleaning_enabled.get()):
+                cleaning_rows = int(cleaning_entry_dict.get('rows_cleaning', 0))
+                cleaning_cols = int(cleaning_entry_dict.get('cols_cleaning', 0))
+                cleaning_dispense_vol = float(cleaning_entry_dict.get('dispense_vol_cleaning', 0.0))
+                cleaning_grid_fill = cleaning_rows * cleaning_cols * cleaning_dispense_vol
+
+            total_fill = min(max_syringe_vol, main_grid_fill + cleaning_grid_fill)
 
             priming_vol = float(entry_dict['priming_vol'])
 

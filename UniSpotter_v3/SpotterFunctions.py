@@ -172,6 +172,7 @@ def write_generation_settings_file(gcode_path, settings_snapshot):
 
         lines.append(f"cleaning_enabled={grid_data.get('cleaning_enabled', False)}")
         lines.append(f"washing_enabled={grid_data.get('washing_enabled', False)}")
+        lines.append(f"wash_after_loading={grid_data.get('wash_after_loading', False)}")
         lines.append(f"final_rinse_enabled={grid_data.get('final_rinse_enabled', False)}")
         lines.append("")
 
