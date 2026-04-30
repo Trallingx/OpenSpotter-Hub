@@ -10,7 +10,9 @@ def start_gcode(file, z_movement_pos_high, probe_x=75, probe_y=70, speed=5000, d
     file.write('\n;Homing sequence\n')
     file.write('M117 Gantry Align\n')
     file.write('G28 Z0 ;Home Z\n')
-    file.write('G28 X0 Y0 ;Home X Y\n')
+    file.write('G28 Y0 ;Home Y\n')
+    file.write(f'G0 Z35 F{adcent_speed};Move to X Homing position\n')
+    file.write('G28 X0 ;Home X\n')
 
     file.write(f'G0 X{probe_x} Y{probe_y} F{speed} ; Go with Head to probe position\n')
     file.write('SET_TMC_FIELD STEPPER=stepper_z FIELD=SGT VALUE=0\n')
@@ -117,13 +119,57 @@ def generate_grid(
     if loading_container_obj is None:
         raise ValueError(f"Missing configuration for container {loading_container}")
 
-    def ensure_loaded(required_mm=0.0):
-        """Reload syringe when remaining plunger travel is insufficient."""
+    refill_mm_cap = volume_to_mm(refill)
+    mm_per_ul = volume_to_mm(1.0)
+    if mm_per_ul <= 0:
+        raise ValueError("volume_to_mm(1.0) must be positive")
+
+    # Pre-compute cleaning grid volume per reload (will run after each reload if cleaning is enabled).
+    cleaning_grid_volume_per_reload_mm = 0.0
+    if grid_obj and hasattr(grid_obj, 'cleaning_enabled') and grid_obj.cleaning_enabled.get():
+        cleaning_entry_dict = read_entries_as_dict(grid_obj.cleaning_entry, CLEANING_FIELDS)
+        cleaning_rows = int(cleaning_entry_dict.get('rows_cleaning', 0))
+        cleaning_cols = int(cleaning_entry_dict.get('cols_cleaning', 0))
+        cleaning_dispense_vol = float(cleaning_entry_dict.get('dispense_vol_cleaning', 0.0))
+        cleaning_grid_volume_per_reload_mm = volume_to_mm(cleaning_rows * cleaning_cols * cleaning_dispense_vol)
+
+    # Pre-compute spot volumes for all remaining spots calculation.
+    spot_volumes_mm = []
+    base_spot_mm = volume_to_mm(extrude)
+    for spot_idx in range(rows * cols):
+        spot_extrude = extrude
+        if cols > 0 and spot_idx % cols == 0 and spot_idx != 0:
+            spot_extrude += row_add_volume
+        spot_volumes_mm.append(volume_to_mm(spot_extrude))
+    
+    # Reserve: always keep buffer for 1 base spot to avoid edge-case reloads.
+    reserve_volume_mm = base_spot_mm
+
+    def ensure_loaded(required_mm=0.0, current_spot_index=None):
+        """Reload syringe when remaining plunger travel is insufficient.
+        Dynamically calculates refill as min(remaining_spots + cleaning + reserve, refill_cap).
+        """
         did_reload = False
         eps = 1e-6
         if syringe_tracker[0] <= eps or (syringe_tracker[0] + eps) < required_mm:
             did_reload = True
+            # Calculate remaining volume needed from current spot to grid end.
+            remaining_spots_mm = 0.0
+            if current_spot_index is not None and 0 <= current_spot_index < len(spot_volumes_mm):
+                remaining_spots_mm = sum(spot_volumes_mm[current_spot_index:])
+            
+            # Total: remaining spots + cleaning volume (runs after reload) + reserve buffer.
+            total_needed_mm = remaining_spots_mm + cleaning_grid_volume_per_reload_mm + reserve_volume_mm
+            
+            # Use min(needed, cap) to avoid waste but fill to cap if needed.
+            target_fill_mm = min(total_needed_mm, refill_mm_cap) if total_needed_mm > 0 else refill_mm_cap
+
             file.write(f'G0 Z{z_movement_pos_high} F{adcent_speed}\n')
+            file.write(
+                f'; Dynamic refill: {target_fill_mm:.3f} mm ({target_fill_mm / mm_per_ul:.3f} uL) '
+                f'[spots={remaining_spots_mm:.3f} mm + cleaning={cleaning_grid_volume_per_reload_mm:.3f} mm + '
+                f'reserve={reserve_volume_mm:.3f} mm = {total_needed_mm:.3f} mm, cap={refill_mm_cap:.3f} mm]\n'
+            )
             loading_syringe(
                 file,
                 loading_container_obj,
@@ -133,7 +179,7 @@ def generate_grid(
                 adcent_speed,
                 refilling_speed,
                 dispensing_speed,
-                total_fill=refill,
+                total_fill=(target_fill_mm / mm_per_ul),
                 priming_vol=priming_vol,
                 syringe_tracker=syringe_tracker,
                 syringe_aspirate_wait=syringe_aspirate_wait,
@@ -170,16 +216,17 @@ def generate_grid(
 
 
     if grid_obj.cleaning_enabled.get():
-        ensure_loaded()
+        ensure_loaded(current_spot_index=0)
         reset_washing_counter()
+
+    file.write(f'M117; Main Grid {grid_obj.get_grid_name()}\n')
 
     for i in range(rows * cols):
         current_extrude = extrude
         if cols > 0 and i % cols == 0 and i != 0:
             current_extrude += row_add_volume
-
         extrude_mm = volume_to_mm(current_extrude)
-        ensure_loaded(required_mm=extrude_mm)
+        ensure_loaded(required_mm=extrude_mm, current_spot_index=i)
 
         line = 'G0 ' + coordinates[i] + f' F{speed}' + '\n'
         file.write(line)
@@ -241,11 +288,15 @@ def loading_syringe(
 ):
     if container is None:
         raise ValueError("Loading container is not configured")
-
+        
     fill_mm = volume_to_mm(total_fill) + volume_to_mm(priming_vol)
     priming_mm = volume_to_mm(priming_vol)
     
     file.write(f'G0 X{container.x} Y{container.y} F{speed}\n')
+
+    file.write('M117; Open Container\n')
+    file.write('PAUSE\n')
+
     file.write(f'G0 Z{container.z_filling_height}  F{decent_speed}\n')
     file.write(f'ASPIRATE MM={fill_mm} SPEED={refilling_speed}; Filling the syringe\n')
     file.write(f'WAIT S={syringe_aspirate_wait}\n')
@@ -278,6 +329,8 @@ def emptying_syringe(
 ):
     if container is None:
         raise ValueError("Emptying container is not configured")
+    file.write('M117; Emptying Syringe\n')
+
     file.write(f'\nG0 Z{z_movement_pos_high} F{adcent_speed} ; dispensing leftovers\n')
     file.write(f'G0 X{container.x} Y{container.y} F{speed}\n')
     file.write(f'G0 Z{container.z_filling_height} F{decent_speed}\n')
@@ -342,7 +395,7 @@ def auto_cleaning_grid(
     anchor_y_shifted = anchor_y + (cycle_index * y_relative_increase)
 
     file.write("\n\n; Create cleaning sequence\n")
-
+    file.write('M117; Auto Cleaning\n')
     cleaning_coordinates = create_coordinates(
         cleaning_rows,
         cleaning_cols,
@@ -368,7 +421,7 @@ def auto_cleaning_grid(
         file.write(f'G0 Z{z_contact} F{decent_speed} ;position for liquid contact\n')
         file.write(f'G0 Z{z_movement_pos_low} F{adcent_speed}\n')
 
-    #file.write(f'G0 Z{z_movement_pos_high} F{adcent_speed}\n')
+    file.write('\n\n\n')
 
     if cleaning_cycle_counter is not None:
         cleaning_cycle_counter[0] += 1
@@ -388,6 +441,7 @@ def auto_washing(self, grid_obj, z_movement_pos_high, file, speed=5000, decent_s
     x_abs = washing_x_pos
     y_abs = washing_y_pos
     file.write("\n; Washing sequence\n")
+    file.write('M117; Auto Washing\n')
 
     file.write(f'G0 Z{z_movement_pos_high} F{adcent_speed}\n')
     file.write(f'G0 X{x_abs} Y{y_abs} F{speed}\n')
