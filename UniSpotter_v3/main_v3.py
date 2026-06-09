@@ -21,14 +21,21 @@ if __name__ == "__main__":
     states_data = read_defaults(os.path.join(config_dir, "config_states.json"))
     if isinstance(states_data, dict):
         grid_count = states_data.get("grid_count", 0)
+        spiral_count = states_data.get("spiral_count", 0)
     else:
         grid_count = int(states_data[0]) if states_data else 0
+        spiral_count = 0
 
     grid_count = max(0, min(int(grid_count), max_grid_count))
     
     # Create grids based on stored state
     for _ in range(grid_count):
         Gui.instance_grid()
+
+    for _ in range(spiral_count):
+        Gui.instance_spiral()
+
+    Gui._switch_workspace_mode()
     
     # Set global fields to locked state by default
     Gui._update_global_fields_state()

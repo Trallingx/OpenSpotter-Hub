@@ -116,12 +116,28 @@ GRID_FIELDS: List[Field] = [
     Field("pitch_y", "Y step size", "mm"),
     Field("dispense_vol", "Dispense Volume", "uL"),
     Field("row_add_volume", "Row Add Volume", "uL"),
-    Field("loading_from", "Loading from (1-6)", "int"),
     Field("leftovers_into", "Leftovers into (1-6)", "int"),
     Field("z_contact", "Needle-Substrate Distance", "mm"),
     Field("droplet_forming_time", "Droplet forming time", "s"),
     Field("grid_offset_x", "Grid offset X", "mm"),
     Field("grid_offset_y", "Grid offset Y", "mm"),
+]
+
+# Fields specific to spiral plugin; keys must match plugin expected params
+SPIRAL_FIELDS = [
+    Field('center_x', 'Center X (mm)', unit='mm', default=0.0),
+    Field('center_y', 'Center Y (mm)', unit='mm', default=0.0),
+    Field('start_radius', 'Start Radius (mm)', unit='mm', default=0.0),
+    Field('turns', 'Turns', unit='float', default=5.0),
+    Field('num_starts', 'Starts', unit='int', default=1),
+    Field('spacing_mm', 'Spacing (mm)', unit='mm', default=1.5),
+    Field('dispense_vol', 'Dispense uL', unit='uL', default=0.003),
+    Field('spiral_mode', 'Spiral Mode', unit='str', default='drop'),
+    Field('interleave', 'Interleave Starts', unit='bool', default=False),
+    Field('loading_from', 'Loading from (1-6)', unit='int', default=1),
+    Field('leftovers_into', 'Leftovers into (1-6)', unit='int', default=1),
+    Field('z_contact', 'Needle-Substrate Distance', unit='mm', default=0.01),
+    Field('droplet_forming_time', 'Droplet forming time', unit='s', default=0.5),
 ]
 
 

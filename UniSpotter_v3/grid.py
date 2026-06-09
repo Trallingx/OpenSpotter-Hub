@@ -53,8 +53,6 @@ class Grid(object):
             except Exception:
                 pass
 
-        
-
     def _toggle_cleaning_inputs(self):
         """Show/hide cleaning input widgets based on checkbox state."""
         is_enabled = self.cleaning_enabled.get()
@@ -234,6 +232,7 @@ class Grid(object):
 
         self._handle_grid_name_change()
 
+
         # Add checkbox to enable/disable cleaning grid at row 1
         self.cleaning_enabled = tk.BooleanVar(
             value=_to_bool(grid_defaults.get("cleaning_enabled", False))
@@ -394,12 +393,29 @@ def create_labels(fields, defaults, entries, input_frame,
             font=FONTS['small']
         )
 
-        entry = tk.Entry(
-            parent_for_field, bd=0, relief='flat',
-            bg=COLORS['bg_tertiary'], fg=COLORS['accent'],
-            font=(FONTS['small'][0], FONTS['small'][1], 'bold'),
-            insertbackground=COLORS['accent']
-        )
+        # Use specialized widgets for some field types (dropdowns for spiral options)
+        if getattr(field, 'key', '') == 'spiral_mode':
+            entry = ttk.Combobox(
+                parent_for_field,
+                values=['drop', 'continuous'],
+                state='readonly',
+                font=FONTS['small']
+            )
+        elif getattr(field, 'key', '') == 'interleave':
+            # Represent boolean interleave as a dropdown with explicit choices
+            entry = ttk.Combobox(
+                parent_for_field,
+                values=['False', 'True'],
+                state='readonly',
+                font=FONTS['small']
+            )
+        else:
+            entry = tk.Entry(
+                parent_for_field, bd=0, relief='flat',
+                bg=COLORS['bg_tertiary'], fg=COLORS['accent'],
+                font=(FONTS['small'][0], FONTS['small'][1], 'bold'),
+                insertbackground=COLORS['accent']
+            )
 
         unit = tk.Label(
             parent_for_field,
@@ -410,11 +426,29 @@ def create_labels(fields, defaults, entries, input_frame,
 
         # Insert default value
         value = defaults.get(field.key, field.default)
-        entry.insert(0, str(value))
+        # For comboboxes, set the value via set; for Entry use insert
+        try:
+            if isinstance(entry, ttk.Combobox):
+                # Normalize boolean defaults for the interleave combobox
+                if getattr(field, 'key', '') == 'interleave':
+                    entry.set('True' if bool(value) else 'False')
+                else:
+                    entry.set(str(value))
+            else:
+                entry.insert(0, str(value))
+        except Exception:
+            # Fallback to simple insert
+            try:
+                entry.insert(0, str(value))
+            except Exception:
+                pass
 
-        # Canvas update hook
+        # Canvas update hook: bind both key events for Entry and selection events for Combobox
         if gui and hasattr(gui, 'canvas_drawer'):
-            entry.bind('<KeyRelease>', lambda e: gui.canvas_drawer._poll())
+            if isinstance(entry, ttk.Combobox):
+                entry.bind('<<ComboboxSelected>>', lambda e: gui.canvas_drawer._poll())
+            else:
+                entry.bind('<KeyRelease>', lambda e: gui.canvas_drawer._poll())
 
         label.grid(row=row, column=0, sticky="WE", pady=4, padx=8)
         entry.grid(row=row, column=1, sticky="WE", padx=4, pady=4)

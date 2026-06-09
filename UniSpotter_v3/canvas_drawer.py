@@ -1,6 +1,6 @@
 import tkinter as tk
 from SpotterFunctions import read_entries_as_dict
-from input_configs import GLOBAL_FIELDS, GRID_FIELDS, CLEANING_FIELDS, WASHING_FIELDS
+from input_configs import GLOBAL_FIELDS, GRID_FIELDS, CLEANING_FIELDS, WASHING_FIELDS, SPIRAL_FIELDS
 
 class CanvasDrawer:
     def __init__(self, gui, poll_interval=500):
@@ -41,6 +41,7 @@ class CanvasDrawer:
         global_vals = read_entries_as_dict(self.gui.entry, GLOBAL_FIELDS)
         grids, cleaning_grids, washing_data = [], [], []
         containers = []
+        spirals = []
 
         for idx, grid_obj in sorted(self.gui.grid_tab_dict.items()):
             if grid_obj and hasattr(grid_obj, 'grid_entry'):
@@ -61,6 +62,21 @@ class CanvasDrawer:
                     vals_wash = read_entries_as_dict(grid_obj.washing_entry, WASHING_FIELDS)
                     washing_data.append((idx, vals_wash))
 
+        # Collect spiral definitions (if any)
+        if hasattr(self.gui, 'spiral_tab_dict'):
+            for idx, spiral_obj in sorted(self.gui.spiral_tab_dict.items()):
+                try:
+                    if spiral_obj and hasattr(spiral_obj, 'spiral_entry'):
+                        vals = read_entries_as_dict(spiral_obj.spiral_entry, SPIRAL_FIELDS)
+                        spiral_color = 'orange'
+                        try:
+                            spiral_color = spiral_obj.get_grid_color()
+                        except Exception:
+                            pass
+                        spirals.append((idx, vals, spiral_color))
+                except Exception:
+                    continue
+
         for idx in range(1, 7):
             try:
                 cx = float(global_vals.get(f'container{idx}_x', 0))
@@ -75,6 +91,7 @@ class CanvasDrawer:
             'cleaning_grids': cleaning_grids,
             'washing_data': washing_data,
             'containers': containers,
+            'spirals': spirals,
         }
 
     def draw(self, snapshot):
@@ -87,8 +104,12 @@ class CanvasDrawer:
         cleaning_grids_list = snapshot.get('cleaning_grids', [])
         washing_data_list = snapshot.get('washing_data', [])
         container_list = snapshot.get('containers', [])
+        spirals_list = snapshot.get('spirals', [])
 
         if not global_vals:
+            return
+
+        if not (grids_list or cleaning_grids_list or washing_data_list or spirals_list or container_list):
             return
 
         # Base and offsets
@@ -348,6 +369,78 @@ class CanvasDrawer:
             rad_px = min(max(1, int((diam_mm / 2) * effective_scale)), 80)
             self.canvas.create_oval(px - rad_px, py - rad_px, px + rad_px, py + rad_px,
                                     fill=grid_color, outline='')
+
+        # --- Draw spiral previews ---
+        def _spiral_points(center_x, center_y, start_radius, turns, spacing_mm, theta_offset=0.0):
+            from math import cos, sin, pi
+            b = max(1e-9, spacing_mm / (2.0 * pi))
+            max_theta = 2.0 * pi * max(0.0, float(turns))
+            step = 0.08
+            pts = []
+            theta = 0.0
+            while theta <= max_theta + 1e-9:
+                adjusted = theta + theta_offset
+                radius = float(start_radius) + b * theta
+                x = float(center_x) + radius * cos(adjusted)
+                y = float(center_y) + radius * sin(adjusted)
+                pts.append((x, y))
+                theta += step
+            return pts
+
+        for s_idx, s_vals, s_color in spirals_list:
+            try:
+                # Interpret spiral center as coordinates relative to the XY anchor intersection
+                # so that center (0,0) maps to the intersection at (x_abs, y_abs).
+                cx = x_abs + float(s_vals.get('center_x', 0.0))
+                cy = y_abs + float(s_vals.get('center_y', 0.0))
+                start_radius = float(s_vals.get('start_radius', 0.0))
+                turns = float(s_vals.get('turns', 5.0))
+                spacing_mm = float(s_vals.get('spacing_mm', 1.5))
+                num_starts = max(1, int(float(s_vals.get('num_starts', 1))))
+                dispense = float(s_vals.get('dispense_vol', 0.003))
+                mode = str(s_vals.get('spiral_mode', 'drop')).strip().lower()
+                interleave = str(s_vals.get('interleave', False)).strip().lower() in ('1', 'true', 'yes', 'on', 'true')
+            except Exception:
+                continue
+
+            # build point sets
+            all_point_sets = []
+            from math import pi
+            for start_i in range(num_starts):
+                theta_off = (2.0 * pi * start_i) / float(num_starts)
+                all_point_sets.append(_spiral_points(cx, cy, start_radius, turns, spacing_mm, theta_offset=theta_off))
+
+            if interleave:
+                # interleave
+                max_len = max((len(ps) for ps in all_point_sets), default=0)
+                path = []
+                for i in range(max_len):
+                    for ps in all_point_sets:
+                        if i < len(ps):
+                            path.append(ps[i])
+            else:
+                path = [p for ps in all_point_sets for p in ps]
+
+            if not path:
+                continue
+
+            # draw polyline
+            last_px = None
+            for px_world, py_world in path:
+                px_canvas = (px_world - self._origin_x) * effective_scale + self._pan_x
+                py_canvas = c_h - ((py_world - self._origin_y) * effective_scale + self._pan_y)
+                if last_px is not None:
+                    self.canvas.create_line(last_px[0], last_px[1], px_canvas, py_canvas, fill=s_color, width=2)
+                last_px = (px_canvas, py_canvas)
+
+            # for drop mode, mark spots as circles
+            if mode == 'drop':
+                for px_world, py_world in path:
+                    px_canvas = (px_world - self._origin_x) * effective_scale + self._pan_x
+                    py_canvas = c_h - ((py_world - self._origin_y) * effective_scale + self._pan_y)
+                    diam_mm = max(0, m * dispense + b)
+                    rad_px = max(2, int((diam_mm / 2) * effective_scale))
+                    self.canvas.create_oval(px_canvas - rad_px, py_canvas - rad_px, px_canvas + rad_px, py_canvas + rad_px, fill=s_color, outline='')
 
         # --- Draw cleaning grids (cycle 0 solid, follow-up cycles faded) ---
         for g_idx, vals, _grid_color in grids_list:

@@ -56,8 +56,13 @@ def write_state(state, config_dir=None):
     else:
         filepath = os.path.join(config_dir, "config_states.json")
     
+    if isinstance(state, dict):
+        payload = state
+    else:
+        payload = {"grid_count": state}
+
     with open(filepath, 'w') as file:
-        json.dump({"grid_count": state}, file, indent=2)
+        json.dump(payload, file, indent=2)
 
 
 def entries_to_dict(entries, fields):
@@ -177,6 +182,21 @@ def write_generation_settings_file(gcode_path, settings_snapshot):
         lines.append(f"wash_after_loading={grid_data.get('wash_after_loading', False)}")
         lines.append(f"final_rinse_enabled={grid_data.get('final_rinse_enabled', False)}")
         lines.append(f"final_rinse_add_cleaning_grid={grid_data.get('final_rinse_add_cleaning_grid', False)}")
+        lines.append("")
+
+    spiral_settings = settings_snapshot.get("spiral_settings", [])
+    for spiral_data in spiral_settings:
+        spiral_number = spiral_data.get("spiral_number", "?")
+        lines.append(f"[spiral_{spiral_number}]")
+        lines.append(f"spiral_name={spiral_data.get('spiral_name', f'Spiral {spiral_number}')}" )
+        lines.append(f"spiral_color={spiral_data.get('spiral_color', 'orange')}")
+
+        spiral_section = spiral_data.get("spiral", {})
+        if spiral_section:
+            lines.append("spiral:")
+            for key in sorted(spiral_section.keys()):
+                lines.append(f"  {key}={spiral_section[key]}")
+
         lines.append("")
 
     with open(settings_path, "w") as file:
