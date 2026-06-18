@@ -1,0 +1,17 @@
+{
+  "center_x": "100",
+  "center_y": "100",
+  "start_radius": "0.0",
+  "turns": "5.0",
+  "num_starts": "1",
+  "spacing_mm": "10",
+  "dispense_vol": "0.003",
+  "spiral_mode": "drop",
+  "interleave": "False",
+  "loading_from": "1",
+  "leftovers_into": "1",
+  "z_contact": "0.01",
+  "droplet_forming_time": "0.5",
+  "spiral_name": "Spiral 1",
+  "spiral_color": "orange"
+}
