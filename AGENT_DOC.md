@@ -15,6 +15,7 @@ Machine-oriented project tracking context for AI assistants.
 - [Spotter-Control_v3/app/gui_v3.py](Spotter-Control_v3/app/gui_v3.py)
 - [Spotter-Control_v3/app/input_configs.py](Spotter-Control_v3/app/input_configs.py)
 - [Spotter-Control_v3/app/paths.py](Spotter-Control_v3/app/paths.py)
+- [Spotter-Control_v3/Spotter_Control_Dev.md](Spotter-Control_v3/Spotter_Control_Dev.md)
 - [Spotter-Control_v3/config](Spotter-Control_v3/config)
 
 ## Runtime Commands
@@ -65,3 +66,4 @@ When making changes:
 ## Change Log
 
 - 2026-06-18: Reorganized `Spotter-Control_v3` into app, config, assets, hardware, output, and logs folders. Added central path handling, package-relative imports, launcher, public docs, and compile-check guidance.
+- 2026-06-18: Added `Spotter-Control_v3/Spotter_Control_Dev.md` as a developer guide for common edit locations, runtime paths, G-code generation, and validation commands.

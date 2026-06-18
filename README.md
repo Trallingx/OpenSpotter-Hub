@@ -3,6 +3,24 @@
 OpenSpotter-Syringe is an open source syringe-based liquid handling and spotting platform.
 The repository contains the desktop control GUI, G-code generation logic, Klipper configuration examples, and CAD assets for the syringe spotter.
 
+## Examples
+
+1. OpenSpotter-Syringe hardware
+
+<img src="Spotter.JPEG" alt="OpenSpotter-Syringe hardware" width="50%">
+
+2. Main control GUI
+
+<img src="GUI.png" alt="Main control GUI" width="50%">
+
+3. Separate multi-grid layout
+
+<img src="Gui_multigrid_separate.png" alt="Separate multi-grid layout" width="50%">
+
+4. Multi-parameter grid layout
+
+<img src="gui_multiparameter_grid.png" alt="Multi-parameter grid layout" width="50%">
+
 ## Start Here
 
 - [Spotter-Control_v3](Spotter-Control_v3): Python/Tkinter control application and G-code generator.
@@ -32,6 +50,10 @@ The app reads defaults from `Spotter-Control_v3/config`, uses assets from `Spott
 - [Spotter-Control_v3/hardware](Spotter-Control_v3/hardware): Klipper and syringe hardware configuration files.
 - [Spotter-Control_v3/output](Spotter-Control_v3/output): generated or example G-code output.
 - [Spotter-Control_v3/logs](Spotter-Control_v3/logs): runtime logs.
+
+## Publications
+
+- [ACS Sensors publication](https://pubs.acs.org/doi/10.1021/acssensors.5c02007)
 
 ## Contribution Rule
 

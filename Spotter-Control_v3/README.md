@@ -34,6 +34,7 @@ python -m compileall -q app
 ## Layout
 
 - [main.py](main.py): launcher.
+- [Spotter_Control_Dev.md](Spotter_Control_Dev.md): developer map for common code changes.
 - [app](app): Python source code.
 - [config](config): JSON defaults and UI state.
 - [assets/images](assets/images): images loaded by the GUI.
