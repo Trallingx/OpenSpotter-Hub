@@ -11,15 +11,15 @@ The repository contains the desktop control GUI, G-code generation logic, Klippe
 
 2. Main control GUI
 
-<img src="GUI.png" alt="Main control GUI" width="50%">
+<img src="GUI.png" alt="Main control GUI" width="90%">
 
 3. Separate multi-grid layout
 
-<img src="Gui_multigrid_separate.png" alt="Separate multi-grid layout" width="50%">
+<img src="Gui_multigrid_separate.png" alt="Separate multi-grid layout" width="90%">
 
 4. Multi-parameter grid layout
 
-<img src="gui_multiparameter_grid.png" alt="Multi-parameter grid layout" width="50%">
+<img src="gui_multiparameter_grid.png" alt="Multi-parameter grid layout" width="90%">
 
 ## Start Here
 
