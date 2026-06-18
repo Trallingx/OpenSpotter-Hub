@@ -103,3 +103,7 @@
 .venv/Scripts/deactivate.bat
 .venv/Scripts/pip3.exe
 .venv/Scripts/pythonw.exe
+.idea
+__pycache__
+build
+dist
