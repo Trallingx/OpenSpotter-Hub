@@ -55,6 +55,10 @@ The app reads defaults from `Spotter-Control_v3/config`, uses assets from `Spott
 
 - [ACS Sensors publication](https://pubs.acs.org/doi/10.1021/acssensors.5c02007)
 
+
+## Notes
+
+- Spiral mode is not supported yet
 ## Contribution Rule
 
 When behavior, setup, architecture, or hardware configuration changes, update the matching documentation in the same change.
