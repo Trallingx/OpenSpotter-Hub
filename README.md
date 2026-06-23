@@ -1,4 +1,4 @@
-# OpenSpotter-Syringe
+# OpenSpotter-Hub
 
 OpenSpotter-Hub is an open source project for development of different liquid handling and spotting platforms.
 The repository contains the desktop control GUI, G-code generation logic, Klipper configuration examples, and CAD assets for a R2R JetValve Spotter and Syringe Spotter. 
