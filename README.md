@@ -24,7 +24,7 @@ The repository contains the desktop control GUI, G-code generation logic, Klippe
 ## Start Here
 
 - [Spotter-Control_v3](Spotter-Control_v3): Python/Tkinter control application and G-code generator.
-- [CAD](CAD): mechanical design files and printable parts.
+- [CAD](CAD): mechanical design files and printable parts. (CAD will follow in future updates)
 - [Spotter.JPEG](Spotter.JPEG): reference image of the spotter hardware.
 - [DOCS_INDEX.md](DOCS_INDEX.md): documentation map.
 - [GETTING_STARTED.md](GETTING_STARTED.md): setup and contributor workflow.

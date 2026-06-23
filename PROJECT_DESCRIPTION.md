@@ -34,22 +34,16 @@ Implemented:
 - JSON default loading and saving.
 - Grid, cleaning, washing, final rinse, and spiral G-code generation.
 - Organized runtime folders for config, assets, output, hardware files, and logs.
+- Mesh Bedleveling 
 
 In progress / partial:
 - Formal automated tests.
 - Hardware setup documentation beyond included Klipper config files.
-- Clear separation between historical example G-code and generated user output.
+- TCP calibartion
+- Computer vision
+- Lid opening automation
 
 ## Non-Goals Current Version
 
-- Cloud orchestration or remote fleet control.
 - Production-grade laboratory automation validation.
 - Automatic vision-based calibration.
-
-## Success Criteria
-
-- `python main.py` launches the control app from `Spotter-Control_v3`.
-- Defaults load from `config`.
-- Images load from `assets/images`.
-- Generated files are saved under a clear output location.
-- Hardware configuration and CAD assets are easy to find from the repository root.
