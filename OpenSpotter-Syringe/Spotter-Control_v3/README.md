@@ -46,3 +46,21 @@ python -m compileall -q app
 ## Notes
 
 Run commands from this directory so relative package imports and file dialogs behave as expected.
+
+## Klipper TCP Calibration
+
+The Klipper hardware config includes `hardware/klipper/config/tcp_calibration.cfg` for the optical TCP cross sensor. Include it from `printer.cfg` when the sensor is wired:
+
+```ini
+[include tcp_calibration.cfg]
+```
+
+Starter wiring uses active-low NPN inputs on free Einsy RAMBo EXT P3 pins: TCP X beam on `PJ5` and TCP Y beam on `PK0`.
+
+Run calibration from Klipper with:
+
+```gcode
+TCP_CALIBRATE X=<expected_x> Y=<expected_y> Z=<expected_z> HEIGHT=<sensor_height>
+```
+
+The routine saves `tcp_tip_x/y/z` and `tcp_offset_x/y/z` through Klipper `SAVE_VARIABLE` in the active saved-variable file.
