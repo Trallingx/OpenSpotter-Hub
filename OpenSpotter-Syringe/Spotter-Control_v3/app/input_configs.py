@@ -116,6 +116,7 @@ GRID_FIELDS: List[Field] = [
     Field("pitch_y", "Y step size", "mm"),
     Field("dispense_vol", "Dispense Volume", "uL"),
     Field("row_add_volume", "Row Add Volume", "uL"),
+    Field("loading_from", "Loading from (1-6)", "int"),
     Field("leftovers_into", "Leftovers into (1-6)", "int"),
     Field("z_contact", "Needle-Substrate Distance", "mm"),
     Field("droplet_forming_time", "Droplet forming time", "s"),
