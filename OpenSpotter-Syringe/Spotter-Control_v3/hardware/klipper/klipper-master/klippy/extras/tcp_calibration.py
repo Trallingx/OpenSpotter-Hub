@@ -6,29 +6,49 @@
 # Important movement model:
 #   Klipper's homing/probing stop-on-endstop path operates on one straight move
 #   at a time. This module therefore does not trace the old macro's circle.
-#   Instead, the needle is deliberately placed to one side of the 45-degree
-#   optical cross, then the module performs:
-#     1. one pure-X acquisition sweep until either beam is hit,
-#     2. a local bidirectional scan to center that first beam,
-#     3. a search along that physical 45-degree beam line for the other beam,
-#     4. a local bidirectional scan to center the other beam,
-#     5. the existing Z height calibration at the measured XY cross.
+#   Instead, the needle is deliberately placed to one side of the optical cross,
+#   then the module performs:
+#     1. one pure-X acquisition sweep until the X beam is hit,
+#     2. diagonal sweeps normal to the X beam while stepping upward in Z, so a
+#        bent needle can be re-centered until its tip clears the beam,
+#     3. a return to tip Z minus 2 mm, where both beam coordinates are measured
+#        in one common plane,
+#     4. X centering normal to X, followed by Y centering while moving along X,
+#     5. XY recovery from those same-plane beam coordinates,
+#     6. sequential X/Y state queries without movement; calibration succeeds
+#        only when the centered needle disrupts both beams.
 
 import math
-
-from . import homing
 
 
 # Beam normals define the coordinate measured by each beam. They are
 # perpendicular to the physical beam lines:
-#   physical X beam line: +45 degrees in XY
-#   physical Y beam line: -45 degrees in XY
+#   physical X beam line: rises toward X- (-45 degrees)
+#   physical Y beam line: rises toward X+ (+45 degrees)
 #
 # The default values preserve the old macro's 45-degree optical-cross transform:
-#   x_beam_coord = (-x + y) / sqrt(2)
-#   y_beam_coord = ( x + y) / sqrt(2)
-DEFAULT_X_BEAM_NORMAL = (-0.70710678118, 0.70710678118)
-DEFAULT_Y_BEAM_NORMAL = (0.70710678118, 0.70710678118)
+#   x_beam_coord = ( x + y) / sqrt(2)
+#   y_beam_coord = (-x + y) / sqrt(2)
+DEFAULT_X_BEAM_NORMAL = (0.70710678118, 0.70710678118)
+DEFAULT_Y_BEAM_NORMAL = (-0.70710678118, 0.70710678118)
+TIP_SEARCH_EPSILON = 0.000001
+FINAL_CENTER_Z_DROP = 2.0
+PERSISTED_RESULT_NAMES = (
+    'tip_x', 'tip_y', 'tip_z',
+    'expected_x', 'expected_y', 'expected_z',
+    'offset_x', 'offset_y', 'offset_z')
+
+
+def _direction_sign(value, name, error):
+    """Validate a configured direction and reduce it to -1 or +1."""
+    if not value:
+        raise error("%s can not be zero" % (name,))
+    return -1.0 if value < 0.0 else 1.0
+
+
+def _is_missing_trigger(error):
+    """Identify Klipper's normal end-of-scan result without hiding faults."""
+    return str(error).startswith("No trigger on ")
 
 
 class TCPBeam:
@@ -54,6 +74,8 @@ class TCPBeam:
 
 
 class TCPCalibration:
+    """Klipper extra that finds a needle tip with two optical beams."""
+
     def __init__(self, config):
         self.printer = config.get_printer()
         self.gcode = self.printer.lookup_object('gcode')
@@ -71,20 +93,21 @@ class TCPCalibration:
         self.default_xy_travel = config.getfloat('xy_travel', 2.0, above=0.)
         self.default_x_sweep_travel = config.getfloat(
             'x_sweep_travel', 10.0, above=0.)
-        self.default_cross_search_travel = config.getfloat(
-            'cross_search_travel', 10.0, above=0.)
-        self.default_x_direction = config.getfloat('x_direction', -1.0)
-        if not self.default_x_direction:
-            raise config.error("tcp_calibration x_direction can not be zero")
-        self.default_x_direction = (
-            -1.0 if self.default_x_direction < 0.0 else 1.0)
+        self.default_y_sweep_travel = config.getfloat(
+            'y_sweep_travel', 10.0, above=0.)
+        self.default_x_direction = _direction_sign(
+            config.getfloat('x_direction', -1.0),
+            'tcp_calibration x_direction', config.error)
+        self.default_y_direction = _direction_sign(
+            config.getfloat('y_direction', 1.0),
+            'tcp_calibration y_direction', config.error)
         self.default_xy_passes = config.getint('xy_passes', 2, minval=1)
         self.default_speed = config.getfloat('speed', 5.0, above=0.)
         self.default_z_speed = config.getfloat('z_speed', 1.0, above=0.)
         self.default_z_travel = config.getfloat('z_travel', 4.0, above=0.)
-        self.default_z_passes = config.getint('z_passes', 3, minval=1)
-        self.default_z_beam = config.getchoice(
-            'z_beam', {'x': 'x', 'y': 'y', 'both': 'both'}, 'both')
+        self.default_z_step = config.getfloat('z_step', 2.0, above=0.)
+        self.default_z_tolerance = config.getfloat(
+            'z_tolerance', 0.01, above=0.)
         self.require_bltouch_parked = config.getboolean(
             'require_bltouch_parked', True)
 
@@ -115,7 +138,7 @@ class TCPCalibration:
         # Config values are user-facing, so normalize them once and let users
         # enter either unit vectors or any proportional vector.
         x, y = float(vec[0]), float(vec[1])
-        length = math.sqrt(x * x + y * y)
+        length = math.hypot(x, y)
         if not length:
             raise self.printer.config_error("TCP beam normal can not be zero")
         return x / length, y / length
@@ -152,81 +175,16 @@ class TCPCalibration:
             return self.x_normal
         return self.y_normal
 
-    def _other_beam(self, beam):
-        if beam is self.x_beam:
-            return self.y_beam
-        return self.x_beam
-
-    def _beam_letter(self, beam):
-        if beam is self.x_beam:
-            return "X"
-        return "Y"
-
     def _physical_beam_direction(self, beam):
-        # The configured values are beam normals, not the physical beam lines.
-        # A perpendicular vector gives the actual 45-degree line to follow when
-        # travelling along a beam toward the cross intersection.
+        # Rotating a beam normal by 90 degrees gives a direction along the beam.
+        # For the default cross, X rises toward X- and is also normal to Y.
         nx, ny = self._beam_normal(beam)
-        return self._normalize((ny, -nx))
-
-    def _orient_toward(self, direction, start_xy, target_xy):
-        # Beam direction has two valid signs. Use the one that points from the
-        # current measured beam point toward the expected cross position.
-        dx, dy = direction
-        vx = target_xy[0] - start_xy[0]
-        vy = target_xy[1] - start_xy[1]
-        if vx * dx + vy * dy < 0.0:
-            return -dx, -dy
-        return dx, dy
-
-    def _xy_distance(self, a, b):
-        dx = a[0] - b[0]
-        dy = a[1] - b[1]
-        return math.sqrt(dx * dx + dy * dy)
+        return ny, -nx
 
     def _beam_coord(self, normal, pos):
         # Project a toolhead XY point onto a beam normal. A physical beam is
         # modeled as all XY points with the same projected coordinate.
         return normal[0] * pos[0] + normal[1] * pos[1]
-
-    def _beam_distance_along_x(self, beam, start_xy, expected_xy,
-                               x_direction):
-        normal = self._beam_normal(beam)
-        denom = normal[0] * x_direction
-        if abs(denom) < 0.000001:
-            return None
-        expected_coord = self._beam_coord(normal, expected_xy)
-        start_coord = self._beam_coord(normal, start_xy)
-        distance = (expected_coord - start_coord) / denom
-        if distance <= 0.000001:
-            return None
-        return distance
-
-    def _select_first_sweep_beam(self, start_xy, expected_xy, x_direction,
-                                 first_beam_name):
-        first_beam_name = first_beam_name.lower()
-        if first_beam_name == 'x':
-            return self.x_beam, None
-        if first_beam_name == 'y':
-            return self.y_beam, None
-        if first_beam_name != 'auto':
-            raise self.printer.command_error(
-                "FIRSTBEAM must be X, Y, or AUTO")
-
-        candidates = []
-        for beam in (self.x_beam, self.y_beam):
-            distance = self._beam_distance_along_x(
-                beam, start_xy, expected_xy, x_direction)
-            if distance is not None:
-                candidates.append((distance, beam))
-        if not candidates:
-            raise self.printer.command_error(
-                "TCPCALIBRATE can not auto-select the first beam: the "
-                "expected cross is not ahead of the current start point along "
-                "the X sweep. For TCPSTART, pass CALX/CALY for the expected "
-                "beam cross, or force FIRSTBEAM=X / FIRSTBEAM=Y.")
-        candidates.sort(key=lambda item: item[0])
-        return candidates[0][1], candidates[0][0]
 
     def _xy_from_beam_coords(self, x_coord, y_coord):
         # Recover the XY intersection of the two calibrated beam-coordinate
@@ -242,140 +200,29 @@ class TCPCalibration:
         self._lookup_runtime_objects()
         self.toolhead.manual_move(coord, speed)
 
-    def _probe_to(self, beam, target, speed, triggered=True):
+    def _probe_to(self, beam, target, speed):
         # This is the core continuous-motion call. It performs one straight
-        # homing/probing move and lets the MCU stop motion when the beam reaches
-        # the requested state:
-        #   triggered=True  -> stop when the beam becomes disrupted
-        #   triggered=False -> stop when the beam becomes clear
+        # homing move and lets the MCU stop it when the beam is disrupted.
         self._lookup_runtime_objects()
         return self.homing.manual_home(
             self.toolhead, [(beam.mcu_endstop, beam.name)], target, speed,
-            probe_pos=True, triggered=triggered, check_triggered=True)
-
-    def _probe_to_any(self, beams, target, speed, description):
-        raise self.printer.command_error(
-            "Internal TCP calibration error: multi-beam continuous homing is "
-            "disabled because the MCU can not arm two trigger groups on the "
-            "same XYZ steppers. Use FIRSTBEAM=X/Y or FIRSTBEAM=AUTO.")
-        # Klipper's normal manual_home() can watch several endstops, but it
-        # reports an error if not every watched endstop triggered. For the first
-        # acquisition sweep we intentionally want "stop when either beam hits",
-        # so this mirrors HomingMove.homing_move() and returns the earliest
-        # beam that triggered.
-        self._lookup_runtime_objects()
-        endstops = [(beam.mcu_endstop, beam.name) for beam in beams]
-        hmove = homing.HomingMove(self.printer, endstops, self.toolhead)
-        if not hmove.endstops:
-            raise self.printer.command_error(
-                "No TCP beam endstops have steppers attached")
-
-        self.printer.send_event("homing:homing_move_begin", hmove)
-        self.toolhead.flush_step_generation()
-        kin = self.toolhead.get_kinematics()
-        kin_spos = {s.get_name(): s.get_commanded_position()
-                    for s in kin.get_steppers()}
-        hmove.stepper_positions = [
-            homing.StepperPosition(s, name)
-            for es, name in hmove.endstops
-            for s in es.get_steppers()]
-
-        print_time = self.toolhead.get_last_move_time()
-        endstop_triggers = []
-        for mcu_endstop, name in hmove.endstops:
-            rest_time = hmove._calc_endstop_rate(mcu_endstop, target, speed)
-            wait = mcu_endstop.home_start(
-                print_time, homing.ENDSTOP_SAMPLE_TIME,
-                homing.ENDSTOP_SAMPLE_COUNT, rest_time, triggered=True)
-            endstop_triggers.append(wait)
-        any_endstop_trigger = homing.multi_complete(
-            self.printer, endstop_triggers)
-        self.toolhead.dwell(homing.HOMING_START_DELAY)
-
-        error = None
-        try:
-            self.toolhead.drip_move(target, speed, any_endstop_trigger)
-        except self.printer.command_error as e:
-            error = "Error during %s: %s" % (description, str(e))
-
-        trigger_times = {}
-        move_end_print_time = self.toolhead.get_last_move_time()
-        for mcu_endstop, name in hmove.endstops:
-            try:
-                trigger_time = mcu_endstop.home_wait(move_end_print_time)
-            except self.printer.command_error as e:
-                if error is None:
-                    error = "Error during %s on %s: %s" % (
-                        description, name, str(e))
-                continue
-            if trigger_time > 0.0:
-                trigger_times[name] = trigger_time
-
-        triggered_name = None
-        if trigger_times:
-            triggered_name = min(trigger_times, key=trigger_times.get)
-
-        self.toolhead.flush_step_generation()
-        for sp in hmove.stepper_positions:
-            tt = trigger_times.get(sp.endstop_name, move_end_print_time)
-            sp.note_home_end(tt)
-
-        if triggered_name is not None:
-            active_positions = [
-                sp for sp in hmove.stepper_positions
-                if sp.endstop_name == triggered_name]
-            halt_steps = {sp.stepper_name: sp.halt_pos - sp.start_pos
-                          for sp in active_positions}
-            trig_steps = {sp.stepper_name: sp.trig_pos - sp.start_pos
-                          for sp in active_positions}
-            haltpos = trigpos = hmove.calc_toolhead_pos(kin_spos, trig_steps)
-            if trig_steps != halt_steps:
-                haltpos = hmove.calc_toolhead_pos(kin_spos, halt_steps)
-            self.toolhead.set_position(haltpos)
-            for sp in active_positions:
-                sp.verify_no_probe_skew(haltpos)
-        else:
-            trigpos = list(target)
-            self.toolhead.set_position(target)
-
-        try:
-            self.printer.send_event("homing:homing_move_end", hmove)
-        except self.printer.command_error as e:
-            if error is None:
-                error = str(e)
-
-        if error is not None:
-            raise self.printer.command_error(error)
-        if triggered_name is None:
-            raise self.printer.command_error(
-                "No trigger on tcp_beam_x or tcp_beam_y during %s. The "
-                "initial sweep only moves in X, so start on the safe side of "
-                "the 45-degree cross, increase X_SWEEP_TRAVEL, or verify both "
-                "beam pin states with TCPQUERYBEAMS." % (description,))
-
-        for beam in beams:
-            if beam.name == triggered_name:
-                return beam, trigpos
-        raise self.printer.command_error(
-            "Internal TCP calibration error: unknown triggered beam %s"
-            % (triggered_name,))
+            probe_pos=True, triggered=True, check_triggered=True)
 
     def _move_to_xy(self, x, y, z, speed):
         self._manual_move([x, y, z], speed)
 
     def _scan_line_edge(self, beam, start_xy, target_xy, z, speed, gcmd,
-                        label):
+                        label, travel_hint='XY_TRAVEL'):
         # Move to a clear start point first. This positioning move is not the
         # measurement; the following _probe_to() line is the monitored move.
         # If the visible crossing happens during this positioning move, increase
-        # XY_TRAVEL or adjust the approximate beam point so the monitored
-        # start->target line brackets the actual beam edge.
+        # the relevant travel setting so the monitored line brackets the edge.
         self._move_to_xy(start_xy[0], start_xy[1], z, speed)
         if self._query_beam(beam):
             raise self.printer.command_error(
                 "%s is already triggered at %s scan start. Increase "
-                "XY_TRAVEL or move the approximate beam point closer to the "
-                "beam center." % (beam.name, label))
+                "%s or move the approximate beam point closer to the beam "
+                "center." % (beam.name, label, travel_hint))
         target = list(self.toolhead.get_position())
         target[0] = target_xy[0]
         target[1] = target_xy[1]
@@ -385,18 +232,18 @@ class TCPCalibration:
             % (beam.name, label, start_xy[0], start_xy[1],
                target_xy[0], target_xy[1], z))
         try:
-            return self._probe_to(beam, target, speed, triggered=True)
+            return self._probe_to(beam, target, speed)
         except self.printer.command_error as e:
             raise self.printer.command_error(
                 "%s while scanning %s during %s from X%.6f Y%.6f to "
                 "X%.6f Y%.6f. "
                 "The monitored move is a straight line, not a circle. If the "
                 "beam visibly crossed during the previous positioning move, "
-                "increase XY_TRAVEL or adjust the approximate point. If it "
+                "increase %s or adjust the approximate point. If it "
                 "crossed during this straight scan, run TCPQUERYBEAMS while "
                 "manually blocking the beam to verify pin/invert state."
                 % (str(e), beam.name, label, start_xy[0], start_xy[1],
-                   target_xy[0], target_xy[1]))
+                   target_xy[0], target_xy[1], travel_hint))
 
     def _scan_beam_center_on_line(self, beam, line_dir, approximate_xy, z,
                                   travel, speed, passes, gcmd, label):
@@ -405,8 +252,7 @@ class TCPCalibration:
         # center and cancels much of the beam-width / hysteresis error.
         line_dir = self._normalize(line_dir)
         normal = self._beam_normal(beam)
-        values = []
-        points = []
+        coord_total = x_total = y_total = 0.0
         start_neg = (approximate_xy[0] - line_dir[0] * travel,
                      approximate_xy[1] - line_dir[1] * travel)
         start_pos = (approximate_xy[0] + line_dir[0] * travel,
@@ -421,139 +267,199 @@ class TCPCalibration:
             beam_coord = 0.5 * (coord_a + coord_b)
             center_xy = (0.5 * (edge_a[0] + edge_b[0]),
                          0.5 * (edge_a[1] + edge_b[1]))
-            values.append(beam_coord)
-            points.append(center_xy)
+            coord_total += beam_coord
+            x_total += center_xy[0]
+            y_total += center_xy[1]
             gcmd.respond_info(
                 "TCP: %s %s sample %d/%d coords %.6f %.6f -> %.6f"
                 % (beam.name, label, sample + 1, passes, coord_a,
                    coord_b, beam_coord))
-        avg_coord = sum(values) / len(values)
-        avg_point = (sum([p[0] for p in points]) / len(points),
-                     sum([p[1] for p in points]) / len(points))
+        avg_coord = coord_total / passes
+        avg_point = (x_total / passes, y_total / passes)
         return avg_coord, avg_point
 
-    def _acquire_first_beam_from_current_x(self, expected_xy, z, x_direction,
-                                           travel, speed, first_beam_name,
-                                           gcmd):
-        # The operator jogs the needle to the chosen safe side of the
-        # 45-degree cross. From that exact XY point we move only in X until
-        # the selected optical beam trips. Klipper can not safely arm both
-        # beam endstops on the same XYZ steppers at once; doing so makes the
-        # MCU reject the move with "Can't add signal that is already active".
+    def _acquire_x_beam_from_current_x(self, z, x_direction, travel, speed,
+                                       gcmd):
+        # The operator jogs the needle to the chosen safe side of the optical
+        # cross. From that exact XY point we move only in X until the X beam
+        # trips.
         pos = self.toolhead.get_position()
         start_xy = (pos[0], pos[1])
         for beam in (self.x_beam, self.y_beam):
             if self._query_beam(beam):
                 raise self.printer.command_error(
                     "%s is already triggered before the first X sweep. Jog "
-                    "the needle to the clear left/start side of the optical "
+                    "the needle to the clear right/start side of the optical "
                     "cross or verify the beam input with TCPQUERYBEAMS."
                     % (beam.name,))
-        first_beam, predicted_distance = self._select_first_sweep_beam(
-            start_xy, expected_xy, x_direction, first_beam_name)
-        target = list(pos)
-        target[0] = pos[0] + x_direction * travel
-        target[1] = pos[1]
-        target[2] = z
-        if predicted_distance is None:
+        target_xy = (pos[0] + x_direction * travel, pos[1])
+        return self._scan_line_edge(
+            self.x_beam, start_xy, target_xy, z, speed, gcmd,
+            "initial X acquisition", "X_SWEEP_TRAVEL")
+
+    def _acquire_y_beam_along_x_beam(self, x_center_xy, z, y_direction,
+                                     travel, speed, gcmd):
+        # Following the physical X beam preserves its measured coordinate while
+        # crossing Y almost orthogonally. Only Y is monitored during movement.
+        x_beam_dir = self._physical_beam_direction(self.x_beam)
+        first_dir = (x_beam_dir[0] * y_direction,
+                     x_beam_dir[1] * y_direction)
+        self._move_to_xy(x_center_xy[0], x_center_xy[1], z, speed)
+        if self._query_beam(self.y_beam):
+            edge = list(self.toolhead.get_position())
             gcmd.respond_info(
-                "TCP: acquisition X sweep watching %s by request from "
-                "X%.6f Y%.6f to X%.6f Y%.6f"
-                % (first_beam.name, start_xy[0], start_xy[1],
-                   target[0], target[1]))
+                "TCP: %s already triggered while centered on X beam; using "
+                "that point as the approximate Y-beam location"
+                % (self.y_beam.name,))
         else:
-            gcmd.respond_info(
-                "TCP: acquisition X sweep watching %s from X%.6f Y%.6f to "
-                "X%.6f Y%.6f; predicted beam distance %.6f"
-                % (first_beam.name, start_xy[0], start_xy[1],
-                   target[0], target[1], predicted_distance))
-            if predicted_distance > travel:
+            errors = []
+            directions = (first_dir, (-first_dir[0], -first_dir[1]))
+            for attempt, direction in enumerate(directions):
+                target_xy = (
+                    x_center_xy[0] + direction[0] * travel,
+                    x_center_xy[1] + direction[1] * travel)
+                label = "Y acquisition along X beam %s" % (
+                    "configured side" if attempt == 0 else "opposite side")
+                try:
+                    edge = self._scan_line_edge(
+                        self.y_beam, x_center_xy, target_xy, z, speed, gcmd,
+                        label, "Y_SWEEP_TRAVEL")
+                    break
+                except self.printer.command_error as e:
+                    # A missed beam may be on the other side. Hardware and
+                    # motion errors are not recoverable by reversing direction.
+                    if not _is_missing_trigger(e):
+                        raise
+                    errors.append(str(e))
+                    gcmd.respond_info(
+                        "TCP: %s did not trigger; trying opposite Y direction"
+                        % (label,))
+            else:
                 raise self.printer.command_error(
-                    "TCPCALIBRATE predicted %s is %.6f mm away, beyond "
-                    "X_SWEEP_TRAVEL %.6f. Increase X_SWEEP_TRAVEL, move the "
-                    "start point closer, or check CALX/CALY."
-                    % (first_beam.name, predicted_distance, travel))
+                    "No trigger on %s during bidirectional Y acquisition "
+                    "along the centered X beam from X%.6f Y%.6f at Z%.6f "
+                    "with Y_SWEEP_TRAVEL %.6f. "
+                    "Last errors: %s"
+                    % (self.y_beam.name, x_center_xy[0], x_center_xy[1], z,
+                       travel, " | ".join(errors)))
+        return edge, x_beam_dir
+
+    def _center_beam_at_z(self, beam, line_dir, approximate_xy, z, travel,
+                          speed, passes, gcmd, label):
+        coord, center_xy = self._scan_beam_center_on_line(
+            beam, line_dir, approximate_xy, z, travel, speed, passes, gcmd,
+            label)
+        self._move_to_xy(center_xy[0], center_xy[1], z, speed)
+        gcmd.respond_info(
+            "TCP: %s centered at Z%.6f X=%.6f Y=%.6f coord=%.6f"
+            % (label, z, center_xy[0], center_xy[1], coord))
+        return {'coord': coord, 'xy': center_xy, 'z': z}
+
+    def _center_beam_if_hit(self, beam, line_dir, approximate_xy, z, travel,
+                            speed, passes, gcmd, label):
+        # A missing trigger is expected once a Z step moves above the needle
+        # tip. Other motion errors still abort calibration immediately.
         try:
-            edge = self._probe_to(first_beam, target, speed, triggered=True)
+            return self._center_beam_at_z(
+                beam, line_dir, approximate_xy, z, travel, speed, passes,
+                gcmd, label)
         except self.printer.command_error as e:
-            raise self.printer.command_error(
-                "%s during initial X acquisition sweep while watching %s. "
-                "Only one beam can be watched continuously on this MCU; use "
-                "FIRSTBEAM=X/Y if AUTO picked the wrong first beam, or check "
-                "TCPQUERYBEAMS and X_SWEEP_TRAVEL."
-                % (str(e), first_beam.name))
-        return first_beam, edge
+            if _is_missing_trigger(e):
+                return None
+            raise
 
-    def _search_other_beam_on_first_beam(self, first_beam, first_center_xy,
-                                         expected_xy, z, travel, edge_travel,
-                                         speed, gcmd):
-        # Once the first beam is centered, travel along that physical 45-degree
-        # beam line toward the expected cross. Because the two beams are a
-        # 45-degree rotated cross, moving along one beam crosses the other beam
-        # almost perpendicularly.
-        other_beam = self._other_beam(first_beam)
-        beam_dir = self._physical_beam_direction(first_beam)
-        beam_dir = self._orient_toward(beam_dir, first_center_xy, expected_xy)
-        distance_to_expected = self._xy_distance(first_center_xy, expected_xy)
-        search_distance = max(travel, distance_to_expected + edge_travel)
-
-        self._move_to_xy(first_center_xy[0], first_center_xy[1], z, speed)
-        if self._query_beam(other_beam):
-            other_edge = list(self.toolhead.get_position())
-            gcmd.respond_info(
-                "TCP: %s already triggered while centered on %s beam; using "
-                "that point as the approximate second-beam location"
-                % (other_beam.name, first_beam.name))
-        else:
-            target_xy = (first_center_xy[0] + beam_dir[0] * search_distance,
-                         first_center_xy[1] + beam_dir[1] * search_distance)
-            other_edge = self._scan_line_edge(
-                other_beam, first_center_xy, target_xy, z, speed, gcmd,
-                "second-beam acquisition")
-        return other_beam, other_edge, beam_dir
-
-    def _scan_z_once(self, beam, x, y, height, travel, speed):
-        # Z uses the same endstop-stop mechanism, but it watches beam state
-        # transitions vertically:
-        #   1. If starting inside the beam, move up until clear.
-        #   2. Move down until pressed.
-        #   3. Move up until clear.
-        #   4. Average those down/up edges as the vertical beam center.
-        top_z = height + travel
-        bottom_z = height - travel
-        self._manual_move([x, y, height], speed)
-
-        if self._query_beam(beam):
-            target = list(self.toolhead.get_position())
-            target[2] = top_z
-            self._probe_to(beam, target, speed, triggered=False)
-
-        if self._query_beam(beam):
-            raise self.printer.command_error(
-                "%s did not clear while moving up. Increase Z_TRAVEL or "
-                "check the expected X/Y center." % (beam.name,))
-
-        target = list(self.toolhead.get_position())
-        target[2] = bottom_z
-        pressed = self._probe_to(beam, target, speed, triggered=True)
-
-        target = list(self.toolhead.get_position())
-        target[2] = top_z
-        cleared = self._probe_to(beam, target, speed, triggered=False)
-        return 0.5 * (pressed[2] + cleared[2]), pressed[2], cleared[2]
-
-    def _scan_z(self, beams, x, y, height, travel, speed, passes, gcmd):
-        values = []
-        for beam in beams:
-            for sample in range(passes):
-                z, pressed_z, cleared_z = self._scan_z_once(
-                    beam, x, y, height, travel, speed)
-                values.append(z)
+    def _refine_beam_tip_from_miss(self, beam, line_dir, last_hit, clear_z,
+                                   tolerance, xy_travel, xy_speed, z_speed,
+                                   passes, gcmd, label):
+        # Binary-search between the last beam hit and first clear Z. Re-center
+        # at every midpoint so a bent needle cannot escape the local XY scan.
+        hit = last_hit
+        miss_z = clear_z
+        while abs(miss_z - hit['z']) > tolerance:
+            test_z = 0.5 * (hit['z'] + miss_z)
+            self._manual_move([hit['xy'][0], hit['xy'][1], test_z], z_speed)
+            centered = self._center_beam_if_hit(
+                beam, line_dir, hit['xy'], test_z, xy_travel, xy_speed,
+                passes, gcmd, label)
+            if centered is None:
+                miss_z = test_z
                 gcmd.respond_info(
-                    "TCP: %s Z sample %d/%d pressed %.6f clear %.6f -> %.6f"
-                    % (beam.name, sample + 1, passes, pressed_z, cleared_z,
-                       z))
-        return sum(values) / len(values)
+                    "TCP: %s half-step Z%.6f -> no beam hit"
+                    % (label, test_z))
+            else:
+                hit = centered
+                gcmd.respond_info(
+                    "TCP: %s half-step Z%.6f -> hit at X%.6f Y%.6f"
+                    % (label, test_z, hit['xy'][0], hit['xy'][1]))
+
+        tip_z = 0.5 * (hit['z'] + miss_z)
+        gcmd.respond_info(
+            "TCP: %s tip edge last-hit Z%.6f first-clear Z%.6f -> Z%.6f"
+            % (label, hit['z'], miss_z, tip_z))
+        return hit, tip_z, miss_z
+
+    def _track_beam_tip_from_center(self, beam, line_dir, first_hit, travel,
+                                    step, tolerance, xy_travel, xy_speed,
+                                    z_speed, passes, gcmd, label):
+        # Bent needles can drift in XY as Z changes. Instead of moving
+        # vertically at one fixed XY, every Z step is followed by a fresh local
+        # beam-centering sweep around the previous center point.
+        last_hit = first_hit
+        max_z = first_hit['z'] + travel
+        while last_hit['z'] < max_z - TIP_SEARCH_EPSILON:
+            test_z = min(last_hit['z'] + step, max_z)
+            self._manual_move(
+                [last_hit['xy'][0], last_hit['xy'][1], test_z], z_speed)
+            state = "PRESSED" if self._query_beam(beam) else "clear"
+            gcmd.respond_info(
+                "TCP: %s Z step to Z%.6f at previous center -> %s; "
+                "sweeping to re-center"
+                % (label, test_z, state))
+            centered = self._center_beam_if_hit(
+                beam, line_dir, last_hit['xy'], test_z, xy_travel, xy_speed,
+                passes, gcmd, label)
+            if centered is not None:
+                last_hit = centered
+                continue
+
+            gcmd.respond_info(
+                "TCP: %s no beam hit at Z%.6f; refining downward from "
+                "last hit Z%.6f"
+                % (label, test_z, last_hit['z']))
+            refined_hit, tip_z, clear_z = self._refine_beam_tip_from_miss(
+                beam, line_dir, last_hit, test_z, tolerance, xy_travel,
+                xy_speed, z_speed, passes, gcmd, label)
+            return {
+                'coord': refined_hit['coord'],
+                'xy': refined_hit['xy'],
+                'last_hit_z': refined_hit['z'],
+                'clear_z': clear_z,
+                'tip_z': tip_z,
+            }
+
+        raise self.printer.command_error(
+            "%s was still found through Z%.6f. Increase Z_TRAVEL or start "
+            "lower so the beam-following pass can exceed the needle tip."
+            % (beam.name, max_z))
+
+    def _verify_cross_center(self, gcmd):
+        # Query one input after the other at the same stationary position. This
+        # avoids simultaneous endstop monitoring while proving both beams are
+        # disrupted at the calculated intersection.
+        x_pressed = self._query_beam(self.x_beam)
+        y_pressed = self._query_beam(self.y_beam)
+        x_state = "PRESSED" if x_pressed else "clear"
+        y_state = "PRESSED" if y_pressed else "clear"
+        gcmd.respond_info(
+            "TCP: stationary cross-center check X=%s Y=%s"
+            % (x_state, y_state))
+        if not (x_pressed and y_pressed):
+            pos = self.toolhead.get_position()
+            raise self.printer.command_error(
+                "TCP cross-center verification failed at X%.6f Y%.6f "
+                "Z%.6f: X=%s Y=%s. Both beams must be PRESSED without "
+                "movement; check beam normals and scan travel settings."
+                % (pos[0], pos[1], pos[2], x_state, y_state))
 
     def _save_float(self, name, value):
         # Save through Klipper's existing SAVE_VARIABLE object instead of
@@ -614,136 +520,134 @@ class TCPCalibration:
     def cmd_TCPCALIBRATE(self, gcmd):
         # Public command. X/Y/Z are the expected final tip/cross position used
         # for offset calculation. The current XY position is the intentional
-        # clear start side of the cross. HEIGHT is an absolute Z used for the
-        # XY beam scans and as the Z scan center.
+        # clear start side of the cross. HEIGHT is the low Z where the needle
+        # must still cross the X beam before the upward tip search.
         self._require_bltouch_parked()
         self._require_tcp_power_on()
         self._require_homed()
+        # A failed run must not leave a previous calibration marked ready.
+        self._save_bool('tcp_ready', False)
         expected_x = gcmd.get_float('X')
         expected_y = gcmd.get_float('Y')
         expected_z = gcmd.get_float('Z')
         height = gcmd.get_float('HEIGHT', expected_z)
-        if 'RADIUS' in gcmd.get_command_parameters():
+        params = gcmd.get_command_parameters()
+        if 'RADIUS' in params:
             xy_travel = gcmd.get_float('RADIUS', above=0.)
         else:
             xy_travel = gcmd.get_float(
                 'XY_TRAVEL', self.default_xy_travel, above=0.)
-        if 'PASSES' in gcmd.get_command_parameters():
+        if 'PASSES' in params:
             xy_passes = gcmd.get_int('PASSES', minval=1)
         else:
             xy_passes = gcmd.get_int(
                 'XY_PASSES', self.default_xy_passes, minval=1)
         x_sweep_travel = gcmd.get_float(
             'X_SWEEP_TRAVEL', self.default_x_sweep_travel, above=0.)
-        cross_search_travel = gcmd.get_float(
-            'CROSS_SEARCH_TRAVEL', self.default_cross_search_travel, above=0.)
-        x_direction = gcmd.get_float('X_DIRECTION', self.default_x_direction)
-        if not x_direction:
-            raise gcmd.error("X_DIRECTION can not be zero")
-        x_direction = -1.0 if x_direction < 0.0 else 1.0
+        y_sweep_travel = gcmd.get_float(
+            'Y_SWEEP_TRAVEL', self.default_y_sweep_travel, above=0.)
+        x_direction = _direction_sign(
+            gcmd.get_float('X_DIRECTION', self.default_x_direction),
+            'X_DIRECTION', gcmd.error)
+        y_direction = _direction_sign(
+            gcmd.get_float('Y_DIRECTION', self.default_y_direction),
+            'Y_DIRECTION', gcmd.error)
         speed = gcmd.get_float('SPEED', self.default_speed, above=0.)
         z_speed = gcmd.get_float('Z_SPEED', self.default_z_speed, above=0.)
         z_travel = gcmd.get_float('Z_TRAVEL', self.default_z_travel, above=0.)
-        z_passes = gcmd.get_int('Z_PASSES', self.default_z_passes, minval=1)
-        cmd_params = gcmd.get_command_parameters()
-        first_beam_name = cmd_params.get(
-            'FIRST_BEAM', cmd_params.get('FIRSTBEAM', 'AUTO'))
-        z_beam_name = gcmd.get('Z_BEAM', self.default_z_beam).lower()
-        if z_beam_name == 'x':
-            z_beams = [self.x_beam]
-        elif z_beam_name == 'y':
-            z_beams = [self.y_beam]
-        elif z_beam_name == 'both':
-            z_beams = [self.x_beam, self.y_beam]
-        else:
-            raise gcmd.error("Z_BEAM must be X, Y, or BOTH")
+        z_step = gcmd.get_float('Z_STEP', self.default_z_step, above=0.)
+        z_tolerance = gcmd.get_float(
+            'Z_TOLERANCE', self.default_z_tolerance, above=0.)
 
         current = self.toolhead.get_position()
         self._manual_move([current[0], current[1], height], z_speed)
-        expected_xy = (expected_x, expected_y)
         gcmd.respond_info(
-            "TCP: start-left XY acquisition. start X=%.6f Y=%.6f, expected "
+            "TCP: start-right XY acquisition. start X=%.6f Y=%.6f, expected "
             "cross X=%.6f Y=%.6f, HEIGHT=%.6f, X_DIRECTION=%.0f, "
-            "FIRSTBEAM=%s, "
-            "X_SWEEP_TRAVEL=%.6f, CROSS_SEARCH_TRAVEL=%.6f, "
+            "Y_DIRECTION=%.0f, "
+            "X_SWEEP_TRAVEL=%.6f, Y_SWEEP_TRAVEL=%.6f, "
+            "Z_TRAVEL=%.6f, Z_STEP=%.6f, Z_TOLERANCE=%.6f, "
             "XY_TRAVEL=%.6f, passes=%d, speed=%.3f"
             % (current[0], current[1], expected_x, expected_y, height,
-               x_direction, first_beam_name, x_sweep_travel,
-               cross_search_travel, xy_travel, xy_passes, speed))
+               x_direction, y_direction, x_sweep_travel, y_sweep_travel,
+               z_travel, z_step, z_tolerance, xy_travel, xy_passes, speed))
 
-        first_beam, first_edge = self._acquire_first_beam_from_current_x(
-            expected_xy, height, x_direction, x_sweep_travel, speed,
-            first_beam_name, gcmd)
+        # Phase 1: acquire X, then use orthogonal diagonal sweeps to follow the
+        # needle upward until the X beam finds the physical tip edge.
+        x_edge = self._acquire_x_beam_from_current_x(
+            height, x_direction, x_sweep_travel, speed, gcmd)
         gcmd.respond_info(
-            "TCP: first X sweep hit %s at X=%.6f Y=%.6f"
-            % (first_beam.name, first_edge[0], first_edge[1]))
+            "TCP: X sweep hit %s at X=%.6f Y=%.6f"
+            % (self.x_beam.name, x_edge[0], x_edge[1]))
 
-        first_coord, first_center_xy = self._scan_beam_center_on_line(
-            first_beam, (x_direction, 0.0), (first_edge[0], first_edge[1]),
+        x_first = self._center_beam_at_z(
+            self.x_beam, self.x_normal, (x_edge[0], x_edge[1]),
             height, xy_travel, speed, xy_passes, gcmd,
-            "first-beam centering")
-        gcmd.respond_info(
-            "TCP: centered first %s beam at X=%.6f Y=%.6f coord=%.6f"
-            % (self._beam_letter(first_beam), first_center_xy[0],
-               first_center_xy[1], first_coord))
+            "X-beam initial centering")
+        x_tip = self._track_beam_tip_from_center(
+            self.x_beam, self.x_normal, x_first, z_travel, z_step,
+            z_tolerance, xy_travel, speed, z_speed, xy_passes, gcmd,
+            "X-beam tip tracking")
 
-        other_beam, other_edge, first_beam_dir = (
-            self._search_other_beam_on_first_beam(
-                first_beam, first_center_xy, expected_xy, height,
-                cross_search_travel, xy_travel, speed, gcmd))
-        gcmd.respond_info(
-            "TCP: second search found %s while following %s beam at X=%.6f "
-            "Y=%.6f"
-            % (other_beam.name, first_beam.name, other_edge[0],
-               other_edge[1]))
+        # Phase 2: move two millimeters below the measured tip and remeasure X
+        # there. X and Y must be centered in this exact common Z plane.
+        tip_z = x_tip['tip_z']
+        final_z = tip_z - FINAL_CENTER_Z_DROP
+        current_z = self.toolhead.get_position()[2]
+        self._move_to_xy(x_tip['xy'][0], x_tip['xy'][1], current_z, speed)
+        self._manual_move(
+            [x_tip['xy'][0], x_tip['xy'][1], final_z], z_speed)
+        x_final = self._center_beam_at_z(
+            self.x_beam, self.x_normal, x_tip['xy'], final_z, xy_travel,
+            speed, xy_passes, gcmd, "X-beam final-plane centering")
 
-        other_coord, other_center_xy = self._scan_beam_center_on_line(
-            other_beam, first_beam_dir, (other_edge[0], other_edge[1]),
-            height, xy_travel, speed, xy_passes, gcmd,
-            "second-beam centering")
+        # Phase 3: stay on the centered X beam while crossing Y. Bidirectional
+        # Y edges give its center without changing the measured X coordinate.
+        y_edge, x_beam_dir = self._acquire_y_beam_along_x_beam(
+            x_final['xy'], final_z, y_direction, y_sweep_travel, speed, gcmd)
         gcmd.respond_info(
-            "TCP: centered second %s beam at X=%.6f Y=%.6f coord=%.6f"
-            % (self._beam_letter(other_beam), other_center_xy[0],
-               other_center_xy[1], other_coord))
+            "TCP: diagonal Y sweep hit %s at X=%.6f Y=%.6f"
+            % (self.y_beam.name, y_edge[0], y_edge[1]))
+        y_final = self._center_beam_at_z(
+            self.y_beam, x_beam_dir, (y_edge[0], y_edge[1]), final_z,
+            xy_travel, speed, xy_passes, gcmd,
+            "Y-beam final-plane centering")
 
-        if first_beam is self.x_beam:
-            x_coord = first_coord
-            y_coord = other_coord
-        else:
-            x_coord = other_coord
-            y_coord = first_coord
-        tip_x, tip_y = self._xy_from_beam_coords(x_coord, y_coord)
+        # Phase 4: solve the same-plane beam intersection, move there once, and
+        # query X then Y without moving before accepting the calibration.
+        tip_x, tip_y = self._xy_from_beam_coords(
+            x_final['coord'], y_final['coord'])
+        self._move_to_xy(tip_x, tip_y, final_z, speed)
+        self._verify_cross_center(gcmd)
+
         offset_x = tip_x - expected_x
         offset_y = tip_y - expected_y
-
-        self._manual_move([tip_x, tip_y, height], speed)
-        gcmd.respond_info(
-            "TCP: XY center X=%.6f Y=%.6f offsets X=%.6f Y=%.6f"
-            % (tip_x, tip_y, offset_x, offset_y))
-
-        gcmd.respond_info(
-            "TCP: continuous Z scan from HEIGHT=%.6f travel=%.6f passes=%d "
-            "beam=%s speed=%.3f" % (
-                height, z_travel, z_passes, z_beam_name, z_speed))
-        tip_z = self._scan_z(
-            z_beams, tip_x, tip_y, height, z_travel, z_speed, z_passes, gcmd)
         offset_z = tip_z - expected_z
+        gcmd.respond_info(
+            "TCP: solved same-plane XY centers Xcoord=%.6f "
+            "Ycoord=%.6f -> X=%.6f Y=%.6f offsets X=%.6f Y=%.6f"
+            % (x_final['coord'], y_final['coord'], tip_x, tip_y, offset_x,
+               offset_y))
+        gcmd.respond_info(
+            "TCP: tip edge Z=%.6f; verified final center Z=%.6f"
+            % (tip_z, final_z))
 
         self.last_result = {
             'tip_x': tip_x, 'tip_y': tip_y, 'tip_z': tip_z,
+            'final_x': tip_x, 'final_y': tip_y, 'final_z': final_z,
             'offset_x': offset_x, 'offset_y': offset_y, 'offset_z': offset_z,
             'expected_x': expected_x, 'expected_y': expected_y,
             'expected_z': expected_z,
+            'x_beam_coord': x_final['coord'],
+            'y_beam_coord': y_final['coord'],
+            'x_tip_last_hit_z': x_tip['last_hit_z'],
+            'x_tip_clear_z': x_tip['clear_z'],
+            'cross_center_verified': True,
         }
-        self._save_float('tcp_tip_x', tip_x)
-        self._save_float('tcp_tip_y', tip_y)
-        self._save_float('tcp_tip_z', tip_z)
-        self._save_float('tcp_expected_x', expected_x)
-        self._save_float('tcp_expected_y', expected_y)
-        self._save_float('tcp_expected_z', expected_z)
-        self._save_float('tcp_offset_x', offset_x)
-        self._save_float('tcp_offset_y', offset_y)
-        self._save_float('tcp_offset_z', offset_z)
+        # Only values used by macros survive restart; edge diagnostics remain
+        # available through get_status() for the current Klipper session.
+        for name in PERSISTED_RESULT_NAMES:
+            self._save_float('tcp_' + name, self.last_result[name])
         self._save_bool('tcp_ready', True)
         gcmd.respond_info(
             "TCP: done. Tip X=%.6f Y=%.6f Z=%.6f offsets X=%.6f Y=%.6f "

@@ -65,6 +65,8 @@ When making changes:
 
 ## Change Log
 
-- 2026-06-23: Added standalone Klipper `tcp_calibration.cfg` for active-low NPN optical TCP cross calibration on EXT P3 pins `PJ5` and `PK0`, including XY circle sampling, Z edge averaging, and saved TCP offset variables.
+- 2026-07-09: Reworked Klipper TCP calibration for bent/thin needles: fixed X acquisition, local X centering, upward X beam-following with a small sweep after every `Z_STEP`, half-step refinement after the first missed sweep, then matching Y beam-following. XY is solved from the tracked X/Y beam coordinates and final `tcp_tip_z` uses the X-beam tip edge because the laser planes may differ. Removed the old drop/final vertical scan path (`PRE_Y_Z_DROP`, `Z_SCAN_TRAVEL`, `Z_PASSES`, `Z_BEAM`); config exposes `xy_travel: 3`, `z_step: 2`, `z_tolerance: 0.01`, and `z_travel: 20`. `TCPSTART` checks saved BLTouch parked state before movement, and current optical input pins are `PH0`/`PK0`.
+- 2026-07-10: Changed TCP cross centering to common-plane diagonal geometry. X tip tracking now sweeps normal to X; at `tip_z - 2 mm`, X is re-centered and Y is centered while following the physical X beam. The solved intersection is accepted only after stationary sequential X/Y queries both report `PRESSED`.
+- 2026-06-23: Added standalone Klipper `tcp_calibration.cfg` for active-low NPN optical TCP cross calibration on Einsy inputs, including optical beam sampling, Z edge averaging, and saved TCP offset variables.
 - 2026-06-18: Reorganized `Spotter-Control_v3` into app, config, assets, hardware, output, and logs folders. Added central path handling, package-relative imports, launcher, public docs, and compile-check guidance.
 - 2026-06-18: Added `Spotter-Control_v3/Spotter_Control_Dev.md` as a developer guide for common edit locations, runtime paths, G-code generation, and validation commands.
