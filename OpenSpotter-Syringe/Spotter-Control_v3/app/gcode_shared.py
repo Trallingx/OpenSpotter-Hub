@@ -8,6 +8,7 @@ Provides:
 """
 import os
 import tempfile
+import copy
 from contextlib import contextmanager
 from tkinter import filedialog
 
@@ -145,6 +146,7 @@ def collect_common_generation_data(self):
             getattr(self, 'config_dir', str(WORKFLOW_CONFIG.parent)),
             WORKFLOW_CONFIG.name,
         ),
+        'workflow_data': copy.deepcopy(getattr(self, 'workflow_data', None)),
         # Spatial coords
         'x_abs': x_abs,
         'y_abs': y_abs,
@@ -214,10 +216,10 @@ def build_workflow_engine(common):
     base_context = build_runtime_context_defaults()
     base_context["global"] = dict(common["entry_dict"])
     base_context["acceptance"] = dict(common["acceptance_square"])
-    engine = WorkflowEngine(
-        common.get("workflow_path", WORKFLOW_CONFIG),
-        base_context=base_context,
-    )
+    workflow_source = common.get("workflow_data")
+    if workflow_source is None:
+        workflow_source = common.get("workflow_path", WORKFLOW_CONFIG)
+    engine = WorkflowEngine(workflow_source, base_context=base_context)
     log_options(
         logger,
         "workflow.engine_created",

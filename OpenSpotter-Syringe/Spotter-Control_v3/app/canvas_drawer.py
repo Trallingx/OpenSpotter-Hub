@@ -14,6 +14,8 @@ from .visual_objects import (
     visual_object_center,
 )
 
+LIVE_TOOLHEAD_TAG = "live_toolhead"
+
 
 def visual_object_shape_options(object_type, fill_color):
     """Return an opaque fill for every editable rectangle or circle."""
@@ -132,6 +134,22 @@ def canvas_to_world_point(
     )
 
 
+def normalize_live_toolhead_position(position, homed_axes):
+    """Return a finite XYZ tuple only when machine X/Y coordinates are valid."""
+    axes = set(str(homed_axes or "").strip().lower())
+    if not {"x", "y"} <= axes:
+        return None
+    if not isinstance(position, (tuple, list)) or len(position) < 3:
+        return None
+    try:
+        coordinates = tuple(float(value) for value in position[:3])
+    except (TypeError, ValueError):
+        return None
+    if not all(math.isfinite(value) for value in coordinates):
+        return None
+    return coordinates
+
+
 class CanvasDrawer:
     def __init__(self, gui, poll_interval=500):
         self.gui = gui
@@ -149,6 +167,178 @@ class CanvasDrawer:
         self._resize_after_id = None
         self._poll_after_id = None
         self._visual_image_cache = {}
+        self._toolhead_position = None
+        self._toolhead_homed_axes = ""
+        self._toolhead_item_ids = ()
+        self._transform_ready = False
+        self._canvas_width = 0
+        self._canvas_height = 0
+
+    def set_toolhead_position(self, position, homed_axes=""):
+        """Update the non-editable live toolhead overlay without redrawing geometry."""
+        normalized_axes = "".join(
+            axis
+            for axis in "xyz"
+            if axis in set(str(homed_axes or "").strip().lower())
+        )
+        normalized_position = normalize_live_toolhead_position(
+            position,
+            normalized_axes,
+        )
+        next_state = (normalized_position, normalized_axes)
+        current_state = (
+            self._toolhead_position,
+            self._toolhead_homed_axes,
+        )
+        if next_state == current_state:
+            return False
+        self._toolhead_position = normalized_position
+        self._toolhead_homed_axes = normalized_axes
+        self._render_live_toolhead()
+        return True
+
+    def _clear_live_toolhead(self):
+        try:
+            self.canvas.delete(LIVE_TOOLHEAD_TAG)
+        except (AttributeError, tk.TclError):
+            pass
+        self._toolhead_item_ids = ()
+
+    def _render_live_toolhead(self):
+        position = self._toolhead_position
+        if position is None or not self._transform_ready:
+            self._clear_live_toolhead()
+            return
+        scale = self._fit_scale * self._zoom_factor
+        if (
+            scale <= 0
+            or self._pan_x is None
+            or self._pan_y is None
+        ):
+            return
+        x, y, z = position
+        px, py = world_to_canvas_point(
+            x,
+            y,
+            origin_x=self._origin_x,
+            origin_y=self._origin_y,
+            scale=scale,
+            pan_x=self._pan_x,
+            pan_y=self._pan_y,
+        )
+        marker_radius = 10
+        marker_color = COLORS["warning"]
+        tags = (LIVE_TOOLHEAD_TAG,)
+        horizontal_anchor = "w" if px <= self._canvas_width * 0.65 else "e"
+        vertical_anchor = "s" if py >= 34 else "n"
+        label_x = px + 15 if horizontal_anchor == "w" else px - 15
+        label_y = py - 13 if vertical_anchor == "s" else py + 13
+        z_text = f"{z:.3f}" if "z" in self._toolhead_homed_axes else "---"
+        label = (
+            "LIVE REQUESTED TOOLHEAD\n"
+            f"X {x:.3f}   Y {y:.3f}   Z {z_text}"
+        )
+        if len(self._toolhead_item_ids) == 5:
+            ring, diagonal_down, diagonal_up, center, text = (
+                self._toolhead_item_ids
+            )
+            try:
+                self.canvas.coords(
+                    ring,
+                    px - marker_radius,
+                    py - marker_radius,
+                    px + marker_radius,
+                    py + marker_radius,
+                )
+                self.canvas.coords(
+                    diagonal_down,
+                    px - marker_radius - 3,
+                    py - marker_radius - 3,
+                    px + marker_radius + 3,
+                    py + marker_radius + 3,
+                )
+                self.canvas.coords(
+                    diagonal_up,
+                    px - marker_radius - 3,
+                    py + marker_radius + 3,
+                    px + marker_radius + 3,
+                    py - marker_radius - 3,
+                )
+                self.canvas.coords(
+                    center,
+                    px - 2,
+                    py - 2,
+                    px + 2,
+                    py + 2,
+                )
+                self.canvas.coords(text, label_x, label_y)
+                self.canvas.itemconfigure(
+                    text,
+                    text=label,
+                    anchor=f"{vertical_anchor}{horizontal_anchor}",
+                    justify=(
+                        "left" if horizontal_anchor == "w" else "right"
+                    ),
+                )
+                self.canvas.tag_raise(LIVE_TOOLHEAD_TAG)
+                return
+            except (AttributeError, tk.TclError):
+                self._clear_live_toolhead()
+        try:
+            self._toolhead_item_ids = (
+                self.canvas.create_oval(
+                    px - marker_radius,
+                    py - marker_radius,
+                    px + marker_radius,
+                    py + marker_radius,
+                    fill="",
+                    outline=marker_color,
+                    width=2,
+                    dash=(3, 2),
+                    tags=tags,
+                ),
+                self.canvas.create_line(
+                    px - marker_radius - 3,
+                    py - marker_radius - 3,
+                    px + marker_radius + 3,
+                    py + marker_radius + 3,
+                    fill=marker_color,
+                    width=3,
+                    tags=tags,
+                ),
+                self.canvas.create_line(
+                    px - marker_radius - 3,
+                    py + marker_radius + 3,
+                    px + marker_radius + 3,
+                    py - marker_radius - 3,
+                    fill=marker_color,
+                    width=3,
+                    tags=tags,
+                ),
+                self.canvas.create_oval(
+                    px - 2,
+                    py - 2,
+                    px + 2,
+                    py + 2,
+                    fill=marker_color,
+                    outline=COLORS["canvas"],
+                    width=1,
+                    tags=tags,
+                ),
+                self.canvas.create_text(
+                    label_x,
+                    label_y,
+                    text=label,
+                    anchor=f"{vertical_anchor}{horizontal_anchor}",
+                    justify="left" if horizontal_anchor == "w" else "right",
+                    fill=marker_color,
+                    font=FONTS["mono_small"],
+                    tags=tags,
+                ),
+            )
+            self.canvas.tag_raise(LIVE_TOOLHEAD_TAG)
+        except (AttributeError, tk.TclError):
+            self._toolhead_item_ids = ()
 
     def _visual_photo_image(self, item, pixel_width, pixel_height):
         object_id = str(item["id"])
@@ -340,6 +530,8 @@ class CanvasDrawer:
 
     def draw(self, snapshot):
         self.canvas.delete('all')
+        self._toolhead_item_ids = ()
+        self._transform_ready = False
         if snapshot is None:
             self._visual_image_cache.clear()
             return
@@ -588,7 +780,6 @@ class CanvasDrawer:
         ys.extend(point[1] for point in cleaning_preview_points)
         xs.extend(x for item in spiral_preview_paths for x, _y in item["path"])
         ys.extend(y for item in spiral_preview_paths for _x, y in item["path"])
-
         for item in visual_objects:
             try:
                 left, bottom, right, top = visual_object_bounds(item)
@@ -633,6 +824,9 @@ class CanvasDrawer:
         if self._pan_y is None:
             self._pan_y = (c_h - range_y * self._fit_scale) / 2
         effective_scale = self._fit_scale * self._zoom_factor
+        self._canvas_width = c_w
+        self._canvas_height = c_h
+        self._transform_ready = True
 
         def world_to_canvas(wx, wy):
             return world_to_canvas_point(
@@ -1050,6 +1244,7 @@ class CanvasDrawer:
             fill=COLORS['text_primary'],
             font=FONTS['label'],
         )
+        self._render_live_toolhead()
 
     def _on_mousewheel(self, event):
         try:

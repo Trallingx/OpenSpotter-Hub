@@ -8,13 +8,63 @@ from PIL import Image
 
 from app.canvas_drawer import (
     CanvasDrawer,
+    LIVE_TOOLHEAD_TAG,
     canvas_to_world_point,
     load_scaled_visual_image,
+    normalize_live_toolhead_position,
     resolve_canvas_visual_objects,
     visual_image_cache_key,
     visual_object_shape_options,
     world_to_canvas_point,
 )
+
+
+class FakeCanvas:
+    def __init__(self):
+        self.items = {}
+        self.next_id = 1
+        self.create_count = 0
+        self.raised = []
+
+    def _create(self, kind, coordinates, options):
+        item_id = self.next_id
+        self.next_id += 1
+        self.create_count += 1
+        self.items[item_id] = {
+            "kind": kind,
+            "coords": tuple(coordinates),
+            "options": dict(options),
+        }
+        return item_id
+
+    def create_oval(self, *coordinates, **options):
+        return self._create("oval", coordinates, options)
+
+    def create_line(self, *coordinates, **options):
+        return self._create("line", coordinates, options)
+
+    def create_text(self, *coordinates, **options):
+        return self._create("text", coordinates, options)
+
+    def coords(self, item_id, *coordinates):
+        self.items[item_id]["coords"] = tuple(coordinates)
+
+    def itemconfigure(self, item_id, **options):
+        self.items[item_id]["options"].update(options)
+
+    def delete(self, item_or_tag):
+        if isinstance(item_or_tag, str):
+            self.items = {
+                item_id: item
+                for item_id, item in self.items.items()
+                if item_or_tag
+                not in tuple(item["options"].get("tags", ()))
+            }
+        else:
+            self.items.pop(item_or_tag, None)
+
+    def tag_raise(self, tag):
+        self.raised.append(tag)
 
 
 class CanvasDrawerTests(unittest.TestCase):
@@ -92,6 +142,55 @@ class CanvasDrawerTests(unittest.TestCase):
             canvas_to_world_point(*lower, **transform),
             (2.0, 8.0),
         )
+
+    def test_live_toolhead_requires_homed_finite_xy(self):
+        self.assertEqual(
+            normalize_live_toolhead_position((1, 2, 3), "xyz"),
+            (1.0, 2.0, 3.0),
+        )
+        self.assertIsNone(
+            normalize_live_toolhead_position((1, 2, 3), "z")
+        )
+        self.assertIsNone(
+            normalize_live_toolhead_position((float("nan"), 2, 3), "xy")
+        )
+
+    def test_live_toolhead_overlay_updates_without_full_redraw(self):
+        canvas = FakeCanvas()
+        drawer = CanvasDrawer.__new__(CanvasDrawer)
+        drawer.canvas = canvas
+        drawer._fit_scale = 2.0
+        drawer._zoom_factor = 1.0
+        drawer._origin_x = 0.0
+        drawer._origin_y = 0.0
+        drawer._pan_x = 10.0
+        drawer._pan_y = 20.0
+        drawer._canvas_width = 400
+        drawer._canvas_height = 300
+        drawer._transform_ready = True
+        drawer._toolhead_position = None
+        drawer._toolhead_homed_axes = ""
+        drawer._toolhead_item_ids = ()
+
+        self.assertTrue(
+            drawer.set_toolhead_position((5.0, 7.0, 9.0), "xyz")
+        )
+        self.assertEqual(len(canvas.items), 5)
+        first_ids = drawer._toolhead_item_ids
+        ring = canvas.items[first_ids[0]]
+        self.assertEqual(ring["coords"], (10.0, 24.0, 30.0, 44.0))
+        self.assertEqual(canvas.raised[-1], LIVE_TOOLHEAD_TAG)
+
+        self.assertTrue(
+            drawer.set_toolhead_position((6.0, 8.0, 10.0), "xyz")
+        )
+        self.assertEqual(drawer._toolhead_item_ids, first_ids)
+        self.assertEqual(canvas.create_count, 5)
+        moved_ring = canvas.items[first_ids[0]]
+        self.assertEqual(moved_ring["coords"], (12.0, 26.0, 32.0, 46.0))
+
+        self.assertTrue(drawer.set_toolhead_position(None, ""))
+        self.assertEqual(canvas.items, {})
 
     def test_editable_rectangles_and_circles_use_solid_fills(self):
         for object_type in ("rectangle", "circle"):

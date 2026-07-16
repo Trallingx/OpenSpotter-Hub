@@ -20,6 +20,10 @@ Compact machine-oriented context for maintainers and automation.
 
 - Bootstrap and paths: `app/main_v3.py`, `app/paths.py`
 - Main UI: `app/gui_v3.py`
+- Global parameter window: `app/machine_parameters_window.py`
+- Direct-control presentation/coordinator: `app/machine_control_panel.py`, `app/machine_controller.py`
+- Moonraker runtime/settings/state/events: `app/machine`, `app/moonraker_connection_window.py`
+- Strict direct-run snapshots/artifacts: `app/runtime_job.py`
 - Shared dark scientific theme: `app/ui_theme.py`
 - Input schemas: `app/input_configs.py`
 - Grid/spiral UI: `app/grid.py`, `app/spiral_grid.py`
@@ -52,6 +56,21 @@ Compact machine-oriented context for maintainers and automation.
 - The Y stepper direction and TCP beam normals are configured for positive Y from the TCP toward the work area; changing that convention requires re-commissioning homing and recalibrating TCP.
 - Needle offsets require `tcp_ready=True` and `tcp_coordinate_version=2` by default. Absolute G0/G1 targets add saved TCP offsets; Z also adds the live surface trim. Relative moves remain deltas.
 - Raw G0.1/G1.1 bypass the normal correction wrapper and are reserved for reviewed machine macros.
+- Direct Start uploads with `print=false`, repeats ready/idle preflight, then calls `printer.print.start`; never replace this with upload auto-start unless queued-job cleanup is proven.
+- State-changing commands are not replayed after reconnect. A timeout or disconnect after send is an unknown outcome and normal controls remain interlocked until monitoring reconnects; HTTP Emergency Stop remains available.
+- Direct-run recipe names reject CR/LF/control characters. Workflow/profile templates are executable machine code and the final confirmation includes workflow and artifact hashes.
+- Direct-run work is bounded before the worker starts, artifacts are capped at 50 MB, identical remote content uses a SHA-256 filename, and only the newest 20 local runtime artifacts per mode are retained.
+- Start preflight requires locked globals, ready/idle Klippy, live axis bounds, a loaded saved BLTouch state for `MESH`, and TCP readiness at coordinate version 2 for needle offsets.
+- The G-code viewer cursor is virtual-SD read/queued position, never proof of completed physical motion, and is hidden on filename mismatch.
+- Direct controls require the immutable advertised `OPENSPOTTER_CONTRACT_V3` plus the reviewed manual/job macro set, including `OPENSPOTTER_JOB_HOME` and `OPENSPOTTER_JOB_REHOME_Z`; missing or stale firmware keeps controls disabled.
+- Deploy `hardware.cfg`, `movement_safety.cfg`, `remote_control.cfg`, and the matching `config_gcode_workflow.json` as one motion-control set, then restart Klipper.
+- Sensorless X/Y/Z use `homing_retract_dist: 0`. `OPENSPOTTER_HOME` owns the 2-second settle/release Z/Y/physical-clearance/X sequence and requires at least 35 mm plus enabled dead-zone clearances before X home.
+- `OPENSPOTTER_JOG` requires homed XYZ, idle/inactive virtual SD, offsets and bed mesh off, physical bounds, and at least 30 mm/min.
+- Manual console input is bounded to 16 KiB/100 lines/50 commands and a small query plus `G90`/`G91`/bounded `G0`/`G1` XYZ/F allowlist; raw motion requires explicit mode/feed, live bounds, and at most 60 seconds estimated execution.
+- Manual `M112` uses HTTP Emergency Stop. Unsafe/unknown commands are blocked, and partial errors, missing sentinels, timeouts, disconnects, or E-stop latch controls until inspection and reconnect.
+- Live Z validates and prechecks motion before coordinate-mode changes, restores state, then commits the offset; desktop changes use `SAVE=0`.
+- The sample Moonraker authorization trusts localhost only. Deployment must allow only the exact control host/isolated subnet and firewall port 7125.
+- A fixed IPv4 address can avoid `.local`/mDNS connection delay on constrained Pi Zero deployments.
 
 ## Folder contract
 
@@ -68,12 +87,16 @@ Compact machine-oriented context for maintainers and automation.
 ## Known limits
 
 - Hardware-in-the-loop coverage is manual.
+- Moonraker/controller tests use fakes; they do not authorize physical motion or prove network/hardware timing.
 - The supplied workflow does not run TCP calibration or automatically load/park the detachable BLTouch.
 - CAD folders do not provide a formal released-build manifest; verify files against the intended physical revision.
 - JetValve, computer vision, and automatic lid handling are not implemented.
 
 ## Change log
 
+- 2026-07-16: Added the immutable OpenSpotter contract v3 capability gate, safe sensorless job/manual homing, physical-frame jog/dead-zone checks, and the bounded parsed manual console with HTTP E-stop and partial-outcome interlocks.
+- 2026-07-16: Added persistent Moonraker HTTP/WebSocket control, immutable exact virtual-SD artifacts, guarded Start/Pause/Resume/Cancel/E-stop, XYZ jog/home, live Z, read/queued G-code context, connection settings, unknown-outcome interlocks, live bounds/tool readiness, deterministic remote files, retention, and compiled workflow performance caches.
+- 2026-07-16: Moved global machine parameters into a persistent maximized editor beside Help and replaced the former reference-imagery space with responsive Machine Control tabs.
 - 2026-07-16: Limited application generation to grid and spiral jobs by removing the obsolete standalone calibration UI/event path and its dedicated wait setting; startup needle calibration and hardware TCP calibration remain separate.
 - 2026-07-16: Added persistent Move Up/Move Down visual layering with a front-to-back editor list while preserving existing canvas appearance and stored painter order.
 - 2026-07-16: Added persistent visual-property bindings to stable numeric program inputs, automatic legacy-container X/Y migration, live canvas resolution with safe fallbacks, and lock-aware reverse editing.

@@ -10,6 +10,7 @@ OpenSpotter-Syringe is an open-source, syringe-driven liquid-handling and spotti
 - Preview geometry in millimetres around the CAPTRON TCP beam crossing at X0/Y0.
 - Edit Start, Loading, Printing, Cleaning, and End G-code event blocks at runtime.
 - Save versioned JSON profiles beside generated G-code and load those profiles back into the application.
+- Connect directly to Moonraker for exact virtual-SD upload/start, monitored Pause/Resume/Cancel, independent Emergency Stop, guarded XYZ motion, and live needle Z trim.
 - Calibrate a needle TCP with the retained Klipper optical-cross module.
 - Apply saved TCP offsets, bed mesh compensation, and a live needle-to-surface Z trim.
 - Use a neutral graphite scientific UI defined centrally in `app/ui_theme.py`.
@@ -27,7 +28,7 @@ Generated files default to `Spotter-Control_v3/output/gcodes`. That directory is
 
 ## Repository layout
 
-- `Spotter-Control_v3/app`: desktop UI, planners, workflow renderer, and pattern code.
+- `Spotter-Control_v3/app`: desktop UI, planners, compiled workflow renderer, direct-run artifacts, Moonraker runtime/controller, and pattern code.
 - `Spotter-Control_v3/config`: editable JSON defaults, workflow, visual layout, and UI state.
 - `Spotter-Control_v3/hardware/klipper`: active Klipper configuration and custom TCP module.
 - `Spotter-Control_v3/tests`: standard-library unit and integration tests.
@@ -36,6 +37,6 @@ Generated files default to `Spotter-Control_v3/output/gcodes`. That directory is
 
 ## Project status
 
-Software generation paths and configuration-level tests are present. Physical commissioning, hardware-in-the-loop validation, and experiment-specific risk assessment remain operator responsibilities. Computer vision, automatic lid handling, and a JetValve controller are not implemented in this repository.
+Software generation and fake-Moonraker control paths have unit/integration coverage. Physical commissioning, hardware-in-the-loop validation, and experiment-specific risk assessment remain operator responsibilities. Computer vision, automatic lid handling, and a JetValve controller are not implemented in this repository.
 
 Related publication: [ACS Sensors, DOI 10.1021/acssensors.5c02007](https://pubs.acs.org/doi/10.1021/acssensors.5c02007).

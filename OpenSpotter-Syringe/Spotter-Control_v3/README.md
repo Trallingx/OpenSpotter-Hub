@@ -1,6 +1,6 @@
 # Spotter-Control_v3
 
-Spotter-Control_v3 is the local desktop recipe editor and G-code generator for OpenSpotter-Syringe. It uses Tkinter and Pillow; it does not stream commands to Klipper.
+Spotter-Control_v3 is the local desktop recipe editor, G-code generator, and Moonraker machine console for OpenSpotter-Syringe. It uses Tkinter, Pillow, and a persistent aiohttp WebSocket/HTTP client. Saved-file generation remains available without a printer connection.
 
 ## Run
 
@@ -50,13 +50,14 @@ The interface uses a low-saturation graphite scientific palette, restrained stee
 
 The main workspace provides:
 
-- locked global machine parameters;
+- global machine parameters in a persistent maximized editor opened beside **HELP**;
 - multiple grid recipes with optional cleaning, washing, and final-rinse behavior;
 - multiple spiral recipes;
 - a TCP-relative geometry preview;
 - JSON profile loading;
 - a runtime G-code workflow editor;
-- atomic grid and spiral G-code generation.
+- atomic grid and spiral G-code generation;
+- Moonraker connection state, virtual-SD Start/Pause/Resume/Cancel, HTTP emergency stop, guarded XYZ jog, safe full home, live needle Z trim, and a read/queued G-code cursor.
 
 ## Persisted data
 
@@ -66,6 +67,8 @@ The main workspace provides:
 | Grid/spiral counts | `config/config_states.json` | Controls tabs restored at startup. |
 | Active workflow | `config/config_gcode_workflow.json` | Validated and saved explicitly in the workflow editor. |
 | Preview objects and links | `config/config_visual_objects.json` | Saved independently; geometry never feeds the planner directly. |
+| Moonraker example | `config/config_moonraker.example.json` | Key-free connection example. |
+| Local Moonraker settings | `config/config_moonraker.json` | Created by **CONFIG**, ignored by Git, and may contain an API key. |
 | Job snapshot | `*_settings.json` beside output | Reproducible schema-version 2 generation profile. |
 
 ## Generate G-code
@@ -87,6 +90,39 @@ Profiles contain global settings, the recipes for that job type, derived runtime
 4. if `workflow` is present, validates it and overwrites the active `config/config_gcode_workflow.json`.
 
 Treat profile loading as a workflow change, not only a form import.
+
+## Direct Moonraker control
+
+The right-side machine panel starts a background Moonraker runtime without blocking Tk. **CONFIG** edits the host, port, protocol, route prefix, and optional API key; **RETRY** restarts monitoring. The WebSocket is persistent, identified as a desktop client, and subscribes to printer, virtual-SD, position, prompt, saved calibration, and live-Z state. Commands queued before connection or lost before sending fail instead of replaying after reconnect. On a Pi Zero, a fixed IPv4 address can avoid Windows `.local`/mDNS lookup delays.
+
+Deploy the current `hardware/klipper/config/hardware.cfg`, `remote_control.cfg`, and `movement_safety.cfg` together, keep the current `config/config_gcode_workflow.json`, and restart Klipper. The app checks Klipper's advertised commands for the immutable `OPENSPOTTER_CONTRACT_V3` marker and its required manual/job macros, including `OPENSPOTTER_JOB_HOME` and `OPENSPOTTER_JOB_REHOME_Z`. Start, Home, jog, and related machine controls remain disabled when that contract is missing or stale.
+
+**START CURRENT RECIPE** follows this contract:
+
+1. require locked machine parameters and a connected, ready, idle Klippy state;
+2. capture an immutable grid or spiral snapshot on the Tk thread;
+3. reject invalid text, unbounded pattern/maintenance work, or non-finite inputs;
+4. generate and hash the exact artifact in a worker, using compiled workflow expressions;
+5. compare rendered XYZ targets plus saved TCP/live-Z offsets with live axis limits;
+6. require a loaded BLTouch when the artifact uses `MESH`, and valid TCP coordinate version 2 when it enables needle offsets;
+7. show the artifact hash, workflow hash, size, line count, destination, and physical-action warning for final operator confirmation;
+8. upload with `print=false`, run a fresh ready/idle preflight, and send one `printer.print.start` RPC.
+
+The separate upload/start sequence deliberately avoids Moonraker’s optional upload queue, which could otherwise schedule motion for later. Repeated identical artifacts use the same SHA-256 remote filename under `gcodes/openspotter/<kind>/`; local runtime output retains the newest 20 artifacts per kind.
+
+Pause/Resume and Stop control the active virtual-SD job. Stop invokes Klipper cancellation and the non-motion `OPENSPOTTER_JOB_CLEANUP` macro. **EMERGENCY STOP** bypasses the WebSocket command queue and posts directly to Moonraker’s authenticated `/printer/emergency_stop` endpoint with a short timeout.
+
+XYZ jog is available only while connected, ready, idle, inactive in virtual SD, and homed on all axes, with needle offsets disabled and bed mesh cleared. It calls the reviewed `OPENSPOTTER_JOG` firmware macro, which requires at least 30 mm/min and validates finite distance/feed values, axis-specific limits, physical toolhead bounds, and movement dead zones. Safe Home uses `OPENSPOTTER_HOME`: sensorless X/Y/Z must have `homing_retract_dist: 0`; each homing contact receives a 2-second StallGuard settle and a release move; X homing occurs only after physical Z reaches at least the commissioned 35 mm clearance and every enabled dead-zone clearance.
+
+Live Z calls the transactional needle-offset macros only during an active job while offsets are enabled. Negative values move closer to the substrate; positive values move away. UI adjustments are live (`SAVE=0`) and are not persisted automatically.
+
+The canvas adds an amber **LIVE REQUESTED TOOLHEAD** cross when Moonraker has supplied fresh position data for homed X/Y axes. It shows Klipper's requested trajectory in raw carriage coordinates rather than encoder feedback, and is intentionally separate from the logical needle-tip path when TCP offsets are enabled. The marker is hidden on disconnect, Klippy restart, stale telemetry, or unhomed X/Y, and it follows pan/zoom without refitting the workspace.
+
+The G-code tab shows Moonraker’s `virtual_sdcard.file_position` mapped onto the exact local artifact. It is explicitly a virtual-SD read/queued cursor, not proof that physical motion has completed. The view is hidden if another filename is active. A response timeout or post-send disconnect is treated as an unknown printer-side outcome; normal controls remain interlocked until monitoring is reconnected, while Emergency Stop stays available.
+
+**MANUAL / CONSOLE** parses text before it can be sent. It accepts a small diagnostic allowlist plus `G90`, `G91`, and bounded `G0`/`G1` XYZ/F moves. Raw motion requires an explicit coordinate mode and feed in the same script, Klipper-native plain decimal words (no `=` or scientific notation), live bounds, homed XYZ, offsets and bed mesh off, no virtual-SD activity, a 30–6000 mm/min feed, and an estimated total duration no longer than 60 seconds. Unknown macros, raw homing, arcs, output/driver changes, safety mutations, and other bypass commands are blocked. `M112`/`EMERGENCY_STOP` is routed through Moonraker's HTTP emergency-stop endpoint rather than the queued G-code path. A partial script error, missing completion sentinel, E-stop, timeout, or disconnect latches the machine controls until the operator inspects the printer and reconnects monitoring.
+
+Preflight is not a complete interpreter for arbitrary custom macros or raw G-code. Review the exact artifact and perform an elevated, fluid-free dry run after changing workflows, profiles, fixtures, or firmware. The supplied Moonraker sample trusts localhost only; explicitly allow just the control PC/isolated subnet and firewall port 7125.
 
 ## Runtime G-code workflow
 
@@ -138,12 +174,12 @@ Relative moves remain deltas and Klipper bed mesh remains active independently. 
 
 TCP calibration now records coordinate version 2. Saved offsets from the former positive-up Y convention are rejected until calibration is run again.
 
-The workflow does not run `TCPSTART` and does not automatically load or park the detachable BLTouch. Follow the [Klipper hardware guide](hardware/klipper/README.md) before any machine run.
+The workflow does not run `TCPSTART` and does not automatically load or park the detachable BLTouch. Direct Start checks the saved readiness state but cannot verify physical tool attachment. Deploy the complete matching hardware/remote-control/safety configuration, restart Klipper, and follow the [Klipper hardware guide](hardware/klipper/README.md) before any machine run.
 
 ## Layout
 
 - `main.py`: stable launcher.
-- `app`: UI, planner, workflow, generation, preview, and plugins.
+- `app`: UI, planner, compiled workflow renderer, generation, preview, Moonraker runtime/controller, and plugins.
 - `config`: defaults and persisted application state.
 - `assets/images`: current static GUI images.
 - `tests`: planner, workflow, generation, visual-object, and hardware-config checks.

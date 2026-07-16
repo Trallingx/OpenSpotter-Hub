@@ -21,6 +21,8 @@ import re
 import tempfile
 import tokenize
 from collections.abc import Mapping
+from decimal import Decimal
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -205,6 +207,7 @@ _SAFE_FUNCTIONS = {
 }
 
 
+@lru_cache(maxsize=2048)
 def _rewrite_reserved_names(expression: str) -> str:
     """Rewrite the public ``global`` namespace so Python can parse it."""
     try:
@@ -234,7 +237,11 @@ class SafeExpressionEvaluator:
             raise ExpressionError("Expression must be a non-empty string")
         if len(expression) > self.max_expression_length:
             raise ExpressionError("Expression is too long")
-        rewritten = _rewrite_reserved_names(expression.strip())
+        return self._parse_cached(expression.strip())
+
+    @lru_cache(maxsize=4096)
+    def _parse_cached(self, expression: str) -> ast.Expression:
+        rewritten = _rewrite_reserved_names(expression)
         try:
             tree = ast.parse(rewritten, mode="eval")
         except SyntaxError as exc:
@@ -385,6 +392,7 @@ class SafeExpressionEvaluator:
 _EVALUATOR = SafeExpressionEvaluator()
 
 
+@lru_cache(maxsize=4096)
 def _split_placeholder(contents: str) -> tuple[str, str | None]:
     """Split ``expression:format`` at a top-level colon."""
     text = contents.strip()
@@ -423,58 +431,102 @@ def _split_placeholder(contents: str) -> tuple[str, str | None]:
     return text, None
 
 
+@lru_cache(maxsize=2048)
+def _compile_template(
+    template: str,
+) -> tuple[tuple[tuple[str, str, str | None], ...], str]:
+    """Compile a template into immutable literal/expression segments."""
+    segments = []
+    cursor = 0
+    matches = tuple(_PLACEHOLDER_RE.finditer(template))
+    for match in matches:
+        try:
+            expression, format_spec = _split_placeholder(match.group(1))
+        except ExpressionError as exc:
+            raise TemplateRenderError(str(exc)) from exc
+        segments.append(
+            (
+                template[cursor : match.start()],
+                expression,
+                format_spec,
+            )
+        )
+        cursor = match.end()
+    if template.count("{{") != len(matches) or template.count("}}") != len(matches):
+        raise TemplateRenderError("Template contains unmatched placeholder braces")
+    return tuple(segments), template[cursor:]
+
+
 def template_expressions(template: str) -> list[tuple[str, str | None]]:
     if not isinstance(template, str):
         raise TemplateRenderError("Template must be a string")
-    expressions = []
-    for match in _PLACEHOLDER_RE.finditer(template):
-        try:
-            expressions.append(_split_placeholder(match.group(1)))
-        except ExpressionError as exc:
-            raise TemplateRenderError(str(exc)) from exc
-    if template.count("{{") != len(expressions) or template.count("}}") != len(expressions):
-        raise TemplateRenderError("Template contains unmatched placeholder braces")
-    return expressions
+    segments, _trailing_literal = _compile_template(template)
+    return [
+        (expression, format_spec)
+        for _literal, expression, format_spec in segments
+    ]
 
 
 def render_template(template: str, context: Mapping[str, Any] | None = None) -> str:
     """Render all safe-expression placeholders in *template*."""
-    template_expressions(template)
-
-    def replacement(match: re.Match[str]) -> str:
-        expression, format_spec = _split_placeholder(match.group(1))
+    if not isinstance(template, str):
+        raise TemplateRenderError("Template must be a string")
+    segments, trailing_literal = _compile_template(template)
+    render_context = context or {}
+    output = []
+    for literal, expression, format_spec in segments:
+        output.append(literal)
         try:
-            value = _EVALUATOR.evaluate(expression, context or {})
+            value = _EVALUATOR.evaluate(expression, render_context)
             if format_spec is not None:
                 if not isinstance(value, (int, float, bool)):
                     raise TemplateRenderError(
                         f"Numeric format '{format_spec}' requires a number"
                     )
-                return format(value, format_spec)
-            if value is None:
-                return ""
-            if not isinstance(value, (str, int, float, bool)):
+                rendered = format(value, format_spec)
+            elif value is None:
+                rendered = ""
+            elif not isinstance(value, (str, int, float, bool)):
                 raise TemplateRenderError(
                     f"Expression '{expression}' produced unsupported {type(value).__name__}"
                 )
-            return str(value)
+            elif isinstance(value, float):
+                if not math.isfinite(value):
+                    raise TemplateRenderError(
+                        f"Expression '{expression}' produced a non-finite number"
+                    )
+                decimal_value = Decimal(str(value))
+                rendered = (
+                    "0"
+                    if decimal_value == 0
+                    else format(decimal_value, "f")
+                )
+            else:
+                rendered = str(value)
         except (ExpressionError, ValueError) as exc:
             raise TemplateRenderError(f"Cannot render '{expression}': {exc}") from exc
+        output.append(rendered)
+    output.append(trailing_literal)
+    return "".join(output)
 
-    return _PLACEHOLDER_RE.sub(replacement, template)
 
-
-def _custom_dependencies(expression: str) -> set[str]:
+@lru_cache(maxsize=4096)
+def _custom_dependencies_cached(expression: str) -> frozenset[str]:
     tree = _EVALUATOR.parse(expression)
     dependencies = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
             if node.value.id == "custom":
                 dependencies.add(node.attr)
-    return dependencies
+    return frozenset(dependencies)
 
 
-def _expression_variable_paths(expression: str) -> set[str]:
+def _custom_dependencies(expression: str) -> set[str]:
+    return set(_custom_dependencies_cached(expression))
+
+
+@lru_cache(maxsize=4096)
+def _expression_variable_paths_cached(expression: str) -> frozenset[str]:
     """Return the public leaf-variable paths referenced by an expression."""
     tree = _EVALUATOR.parse(expression)
     nested_attributes = {
@@ -503,7 +555,11 @@ def _expression_variable_paths(expression: str) -> set[str]:
         if id(node) in call_names or id(node) in attribute_names:
             continue
         paths.add("global" if node.id == _GLOBAL_SENTINEL else node.id)
-    return paths
+    return frozenset(paths)
+
+
+def _expression_variable_paths(expression: str) -> set[str]:
+    return set(_expression_variable_paths_cached(expression))
 
 
 def _known_variable_names(custom_names: set[str]) -> set[str]:
@@ -592,8 +648,15 @@ def _resolve_custom_variables(
     definitions: list[Mapping[str, Any]],
     context: Mapping[str, Any],
     requested_names: Any = None,
+    *,
+    definition_index: Mapping[str, Mapping[str, Any]] | None = None,
+    dependency_index: Mapping[str, frozenset[str]] | None = None,
 ) -> dict[str, Any]:
-    by_name = {definition["name"]: definition for definition in definitions}
+    by_name = (
+        {definition["name"]: definition for definition in definitions}
+        if definition_index is None
+        else definition_index
+    )
     external = context.get("custom", {})
     if not isinstance(external, Mapping):
         raise ExpressionError("The custom context namespace must be a mapping")
@@ -616,7 +679,14 @@ def _resolve_custom_variables(
         definition = by_name[name]
         if "expression" in definition:
             expression = definition["expression"]
-            for dependency in _custom_dependencies(expression):
+            dependencies = (
+                None
+                if dependency_index is None
+                else dependency_index.get(name)
+            )
+            if dependencies is None:
+                dependencies = _custom_dependencies_cached(expression)
+            for dependency in dependencies:
                 if dependency in by_name:
                     resolve(dependency)
             local_context = dict(context)
@@ -1040,13 +1110,59 @@ class WorkflowEngine:
         self.base_context = copy.deepcopy(dict(base_context or {}))
         self._last_context = copy.deepcopy(self.base_context)
         self._last_custom_values = {}
-        for definition in self.workflow.get("custom_variables", []):
+        self._custom_definitions = self.workflow.get("custom_variables", [])
+        self._custom_definition_index = {
+            definition["name"]: definition
+            for definition in self._custom_definitions
+        }
+        self._custom_dependency_index = {
+            name: (
+                _custom_dependencies_cached(definition["expression"])
+                if "expression" in definition
+                else frozenset()
+            )
+            for name, definition in self._custom_definition_index.items()
+        }
+        sections_by_trigger: dict[str, list[tuple[Mapping[str, Any], Mapping[str, Any]]]] = {}
+        custom_dependencies_by_trigger: dict[str, set[str]] = {}
+        for block in self.workflow["blocks"]:
+            if not block["enabled"]:
+                continue
+            for section in block["sections"]:
+                trigger = section["trigger"]
+                sections_by_trigger.setdefault(trigger, []).append((block, section))
+                expressions = [
+                    expression
+                    for expression, _format_spec in template_expressions(
+                        section["template"]
+                    )
+                ]
+                if section.get("condition"):
+                    expressions.append(section["condition"])
+                requested = custom_dependencies_by_trigger.setdefault(trigger, set())
+                for expression in expressions:
+                    requested.update(
+                        path.split(".", 1)[1]
+                        for path in _expression_variable_paths_cached(expression)
+                        if path.startswith("custom.")
+                    )
+        self._sections_by_trigger = {
+            trigger: tuple(sections)
+            for trigger, sections in sections_by_trigger.items()
+        }
+        self._custom_dependencies_by_trigger = {
+            trigger: frozenset(names)
+            for trigger, names in custom_dependencies_by_trigger.items()
+        }
+        for definition in self._custom_definitions:
             try:
                 self._last_custom_values.update(
                     _resolve_custom_variables(
-                        self.workflow.get("custom_variables", []),
+                        self._custom_definitions,
                         self.base_context,
                         (definition["name"],),
+                        definition_index=self._custom_definition_index,
+                        dependency_index=self._custom_dependency_index,
                     )
                 )
             except (ExpressionError, WorkflowValidationError):
@@ -1062,7 +1178,11 @@ class WorkflowEngine:
         """Resolve one custom value without evaluating unrelated definitions."""
         merged = _deep_merge(self.base_context, context or {})
         values = _resolve_custom_variables(
-            self.workflow.get("custom_variables", []), merged, (name,)
+            self._custom_definitions,
+            merged,
+            (name,),
+            definition_index=self._custom_definition_index,
+            dependency_index=self._custom_dependency_index,
         )
         self._last_custom_values.update(values)
         return copy.deepcopy(values[name])
@@ -1076,9 +1196,11 @@ class WorkflowEngine:
             try:
                 refreshed.update(
                     _resolve_custom_variables(
-                        self.workflow.get("custom_variables", []),
+                        self._custom_definitions,
                         self.base_context,
                         (name,),
+                        definition_index=self._custom_definition_index,
+                        dependency_index=self._custom_dependency_index,
                     )
                 )
             except (ExpressionError, WorkflowValidationError):
@@ -1091,36 +1213,22 @@ class WorkflowEngine:
         if not isinstance(trigger, str) or not trigger:
             raise WorkflowError("trigger must be a non-empty string")
         merged = _deep_merge(self.base_context, context or {})
-        matching_sections = [
-            (block, section)
-            for block in self.workflow["blocks"]
-            if block["enabled"]
-            for section in block["sections"]
-            if section["trigger"] == trigger
-        ]
+        matching_sections = self._sections_by_trigger.get(trigger, ())
         logger.debug(
             "workflow.trigger_evaluated | trigger=%s | matching_sections=%d",
             trigger,
             len(matching_sections),
         )
-        requested_custom = set()
-        for _block, section in matching_sections:
-            expressions = [
-                expression
-                for expression, _format_spec in template_expressions(section["template"])
-            ]
-            if section.get("condition"):
-                expressions.append(section["condition"])
-            for expression in expressions:
-                requested_custom.update(
-                    path.split(".", 1)[1]
-                    for path in _expression_variable_paths(expression)
-                    if path.startswith("custom.")
-                )
+        requested_custom = self._custom_dependencies_by_trigger.get(
+            trigger,
+            frozenset(),
+        )
         custom_values = _resolve_custom_variables(
-            self.workflow.get("custom_variables", []),
+            self._custom_definitions,
             merged,
             requested_custom,
+            definition_index=self._custom_definition_index,
+            dependency_index=self._custom_dependency_index,
         )
         merged["custom"] = custom_values
         output = []

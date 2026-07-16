@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from app import gcode_workflow as workflow_module
 from app.gcode_workflow import (
     EVENT_TRIGGERS,
     WorkflowEngine,
@@ -13,6 +14,7 @@ from app.gcode_workflow import (
     build_runtime_context_defaults,
     build_variable_catalog,
     default_workflow,
+    render_template,
     render_preview,
     validate_workflow,
 )
@@ -134,6 +136,43 @@ class DefaultWorkflowTests(unittest.TestCase):
 
 
 class WorkflowRenderingTests(unittest.TestCase):
+    def test_compiled_template_preserves_exact_rendered_output(self):
+        template = (
+            "prefix={{ global.movement_speed :08.3f }}"
+            "|quoted={{ 'literal:colon' }}"
+            "|empty={{ custom.empty }}"
+            "|sum={{ global.movement_speed + 1 }}\n"
+        )
+        context = {
+            "global": {"movement_speed": 3.125},
+            "custom": {"empty": None},
+        }
+        expected = (
+            "prefix=0003.125|quoted=literal:colon|empty=|sum=4.125\n"
+        )
+
+        self.assertEqual(render_template(template, context), expected)
+        self.assertEqual(render_template(template, context).encode(), expected.encode())
+
+        detached = workflow_module.template_expressions(template)
+        detached.append(("custom.mutated", None))
+        self.assertNotIn(
+            ("custom.mutated", None),
+            workflow_module.template_expressions(template),
+        )
+
+    def test_unformatted_floats_render_as_plain_decimal_gcode_numbers(self):
+        rendered = render_template(
+            "G0 X{{small}} F{{speed}}\n",
+            {
+                "small": 1e-6,
+                "speed": 6e2,
+            },
+        )
+
+        self.assertEqual(rendered, "G0 X0.000001 F600.0\n")
+        self.assertNotRegex(rendered, r"\d[eE][-+]?\d")
+
     def test_template_formatting_arithmetic_and_condition(self):
         workflow = minimal_workflow(
             custom_variables=[custom_variable("increment", value=2.0)],
@@ -227,6 +266,70 @@ class WorkflowRenderingTests(unittest.TestCase):
         engine = WorkflowEngine(workflow, base_context={})
 
         self.assertEqual(engine.emit("job_start"), "value=7.0\n")
+
+    def test_repeated_emit_reuses_compiled_expressions_and_trigger_indexes(self):
+        workflow_module._rewrite_reserved_names.cache_clear()
+        workflow_module._split_placeholder.cache_clear()
+        workflow_module._compile_template.cache_clear()
+        workflow_module._custom_dependencies_cached.cache_clear()
+        workflow_module._expression_variable_paths_cached.cache_clear()
+        workflow_module._EVALUATOR._parse_cached.cache_clear()
+
+        workflow = minimal_workflow(
+            custom_variables=[custom_variable("cache_probe", value=2.0)],
+            condition="global.movement_speed > 0 and custom.cache_probe == 2",
+            template=(
+                "speed={{global.movement_speed:.2f}} "
+                "sum={{global.movement_speed + custom.cache_probe:.1f}}\n"
+            ),
+        )
+        engine = WorkflowEngine(
+            workflow,
+            base_context={"global": {"movement_speed": 3.14159}},
+        )
+
+        self.assertEqual(
+            tuple(
+                section["id"]
+                for _block, section in engine._sections_by_trigger["job_start"]
+            ),
+            ("test-section",),
+        )
+        self.assertEqual(
+            engine._custom_dependencies_by_trigger["job_start"],
+            frozenset({"cache_probe"}),
+        )
+
+        expected = engine.emit("job_start")
+        parse_after_first = workflow_module._EVALUATOR._parse_cached.cache_info()
+        template_after_first = workflow_module._compile_template.cache_info()
+        with mock.patch.object(
+            workflow_module,
+            "template_expressions",
+            wraps=workflow_module.template_expressions,
+        ) as template_scan:
+            with mock.patch.object(
+                workflow_module,
+                "_expression_variable_paths",
+                wraps=workflow_module._expression_variable_paths,
+            ) as variable_scan:
+                with mock.patch.object(
+                    workflow_module,
+                    "_custom_dependencies",
+                    wraps=workflow_module._custom_dependencies,
+                ) as dependency_scan:
+                    repeated = [engine.emit("job_start") for _ in range(50)]
+
+        parse_after_repeat = workflow_module._EVALUATOR._parse_cached.cache_info()
+        template_after_repeat = workflow_module._compile_template.cache_info()
+        self.assertEqual(repeated, [expected] * 50)
+        self.assertEqual(parse_after_repeat.misses, parse_after_first.misses)
+        self.assertGreater(parse_after_repeat.hits, parse_after_first.hits)
+        self.assertEqual(template_after_repeat.misses, template_after_first.misses)
+        self.assertGreater(template_after_repeat.hits, template_after_first.hits)
+        template_scan.assert_not_called()
+        variable_scan.assert_not_called()
+        dependency_scan.assert_not_called()
 
 
 class WorkflowValidationTests(unittest.TestCase):
@@ -370,7 +473,7 @@ class WorkflowStoreTests(unittest.TestCase):
 
 
 class HardcodedMachineCommandGuardTests(unittest.TestCase):
-    def test_python_sources_do_not_embed_machine_command_tokens(self):
+    def test_generation_sources_do_not_embed_workflow_machine_commands(self):
         forbidden_tokens = (
             "G0",
             "G1",
@@ -391,7 +494,20 @@ class HardcodedMachineCommandGuardTests(unittest.TestCase):
             "NEEDLE_TIP_OFFSETS_DISABLE",
             "NEEDLE_TIP_OFFSETS_ENABLE",
         )
-        source_paths = sorted((PROJECT_DIR / "app").glob("*.py"))
+        # This guard protects the generated-job architecture. Direct-control
+        # modules legitimately name reviewed firmware entry-point macros and
+        # UI actions such as Pause; they do not emit recipe lifecycle G-code.
+        generation_modules = (
+            "gcode_generation.py",
+            "gcode_shared.py",
+            "gcode_planner.py",
+            "grid_gcode.py",
+            "spiral_gcode.py",
+        )
+        source_paths = [
+            PROJECT_DIR / "app" / module_name
+            for module_name in generation_modules
+        ]
         source_paths.extend(sorted((PROJECT_DIR / "app" / "plugins").glob("*.py")))
 
         violations = []
@@ -407,7 +523,7 @@ class HardcodedMachineCommandGuardTests(unittest.TestCase):
         self.assertEqual(
             violations,
             [],
-            "Machine commands must live in config/config_gcode_workflow.json:\n"
+            "Generated lifecycle commands must live in config/config_gcode_workflow.json:\n"
             + "\n".join(violations),
         )
 

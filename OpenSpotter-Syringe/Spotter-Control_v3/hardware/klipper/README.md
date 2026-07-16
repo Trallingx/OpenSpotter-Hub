@@ -18,6 +18,7 @@ It is not a universal or automatically safe configuration. Pins, axis directions
 | `bed_mesh.cfg` | Bed mesh and `MESH`, `MESH_LOAD`, `MESH_CLEAR` macros |
 | `display.cfg` | 20 × 4 LCD content |
 | `mainsail.cfg` | Minimal virtual-SD, pause, resume, cancel, display, and respond support |
+| `remote_control.cfg` | Guarded desktop jog/home entry points, structured prompts, and job cleanup |
 | `tcp_calibration.cfg` | Optical sensor power, macros, pins, and module settings |
 
 `config/moonraker.conf` configures the separate Moonraker service and is not included by Klipper. `config/saved_vars.cfg` is a repository seed with only the initial syringe position; calibration and runtime values are machine-specific.
@@ -35,6 +36,12 @@ Back up the printer's existing configuration and Klipper source before replacing
 5. Restart Klipper and resolve configuration errors before energizing motion.
 6. Commission one subsystem at a time with the tool clear, low current/speed where practical, and an accessible emergency stop.
 
+Do not deploy `remote_control.cfg` alone. At minimum, copy the current `hardware.cfg`, `movement_safety.cfg`, and `remote_control.cfg` together, keep the desktop's current `config/config_gcode_workflow.json`, and restart Klipper before using Start, jog, Home, prompt, or cleanup controls. The desktop requires the immutable `OPENSPOTTER_CONTRACT_V3` marker plus its reviewed manual and job macros; machine controls remain disabled if Klipper advertises a missing or stale contract.
+
+In the desktop **CONFIG** window, enter the Moonraker host, port, protocol, optional route prefix, and API key. Local `config/config_moonraker.json` is ignored by Git; keep credentials out of the key-free example. A fixed IPv4 address may connect more quickly and reliably than `.local` on a Pi Zero/Windows mDNS combination.
+
+The shipped `moonraker.conf` trusts localhost only. Add the exact control-PC address, or a dedicated isolated machine subnet, to `trusted_clients`; do not restore blanket `10/8`, `172.16/12`, or `192.168/16` trust on a shared lab LAN. Restrict/firewall TCP port 7125 to intended control hosts. A desktop API key does not protect endpoints reached by a client Moonraker already considers trusted.
+
 Do not copy calibrated `saved_vars.cfg` values from another machine.
 
 ## Commissioning checks
@@ -42,12 +49,14 @@ Do not copy calibrated `saved_vars.cfg` values from another machine.
 Before a job:
 
 - confirm X/Z direction, and confirm positive Y moves from the TCP toward the work area (down in the top view);
-- tune and test sensorless homing without fixtures in the travel path;
+- confirm X/Y/Z use `homing_retract_dist: 0`, then tune and test sensorless homing without fixtures in the travel path;
 - verify the syringe endstop, plunger direction, and volume conversion without fluid;
 - verify BLTouch pin behavior and dock coordinates at reduced risk;
 - test TCP power and both beam inputs;
 - calibrate TCP and inspect the saved offsets;
 - define and test fixture dead zones;
+- confirm `OPENSPOTTER_CONTRACT_V3`, `OPENSPOTTER_HOME`, `OPENSPOTTER_JOG`, `OPENSPOTTER_JOB_HOME`, `OPENSPOTTER_JOB_REHOME_Z`, `OPENSPOTTER_RUNTIME_STATUS`, and `NEEDLE_TIP_OFFSETS_STATUS` are recognized;
+- confirm Moonraker exposes live toolhead limits, saved variables, the OpenSpotter runtime macro, and the needle-offset macro;
 - run elevated, fluid-free G-code while watching machine coordinates.
 
 The syringe coordinate model is E=0 at empty/fully depressed and E=50 mm at homed/full. `ASPIRATE` increases position toward 50; `DISPENSE` decreases it toward 0. Normal macro motion is clamped to that 0–50 mm working range, while the manual stepper's 70 mm `position_max` provides homing overtravel. Verify the real plunger direction, endstop location, and volume conversion before dispensing.
@@ -151,6 +160,37 @@ The shipped application workflow disables offsets before homing and `MESH`, enab
 
 The application workflow does not call `TCPSTART` and does not automatically load or park the BLTouch. It assumes calibration and tool state have been prepared by the operator.
 
+The desktop direct-run preflight blocks an artifact containing `MESH` unless saved BLTouch state is `loaded`, and blocks needle-offset enablement unless `tcp_ready=True` with coordinate version 2. These are saved-state checks, not physical sensors: inspect the detachable tool and work area yourself.
+
+Artifact preflight is deliberately conservative, but it is not a full Klipper G-code/macro interpreter. It checks rendered direct XYZ targets, current offsets, required saved tool state, and bounded work; custom workflow/profile commands may have additional effects. Review the exact confirmed artifact and run an elevated, fluid-free dry run after workflow, profile, fixture, or firmware changes.
+
+## Desktop remote-control macros
+
+Desktop and workflow motion is exposed through reviewed application-owned entry points:
+
+```gcode
+OPENSPOTTER_HOME
+OPENSPOTTER_JOG AXIS=X DISTANCE=1 F=600
+OPENSPOTTER_JOB_HOME
+OPENSPOTTER_JOB_REHOME_Z
+OPENSPOTTER_RUNTIME_STATUS
+OPENSPOTTER_JOB_CLEANUP
+```
+
+`OPENSPOTTER_HOME` is the idle-only full sequence: disable needle offsets, clear bed mesh, verify `homing_retract_dist: 0` and the commissioned StallGuard setting, wait 2 seconds, home/release Z, wait 2 seconds, home/release Y, lift physical Z to at least 35 mm and all enabled dead-zone clearances, then wait 2 seconds and home/release X. It is blocked whenever virtual SD is active.
+
+`OPENSPOTTER_JOB_HOME` and `OPENSPOTTER_JOB_REHOME_Z` are job-only counterparts used by the current application workflow. They reject calls unless a virtual-SD job is actively printing; the double-Z rehome repeats the same 2-second settle and release behavior.
+
+`OPENSPOTTER_JOG` requires Klippy idle, inactive virtual SD, all XYZ axes homed, needle offsets disabled, and bed mesh cleared. It rejects non-finite/zero distance, limits XY to 25 mm and Z to 5 mm per command, requires at least 30 mm/min, caps XY feed at 6000 mm/min and Z feed at 1500 mm/min, checks live physical toolhead limits, and runs the dead-zone guard.
+
+`OPENSPOTTER_JOB_CLEANUP` performs no motion. It disables needle offsets, clears bed-mesh compensation, restores the commissioned Z StallGuard value, clears the structured prompt/LCD message, and is called by normal completion, cancellation, and virtual-SD error handling.
+
+The live needle-Z setter validates finite range/feed and the physical target, runs movement safety before changing coordinate mode, performs the compensation move, restores state, and only then commits or persists the new offset. Desktop adjustments use `SAVE=0`.
+
+Desktop Emergency Stop bypasses the G-code/WebSocket command queue and sends a short-timeout authenticated HTTP POST directly to Moonraker `/printer/emergency_stop`.
+
+The desktop manual console is intentionally not a general Klipper terminal. It permits a small diagnostic-query allowlist and bounded `G90`/`G91` plus `G0`/`G1` XYZ/F tests with explicit mode/feed, live bounds, homed XYZ, offsets/mesh off, no virtual-SD activity, and a 60-second estimated cap. Unknown macros and commands that bypass homing, movement safety, offsets, drivers, outputs, or job preflight are blocked. Manual `M112` is routed to the same HTTP Emergency Stop. Partial execution errors or a missing completion response latch controls until the machine is inspected and monitoring is reconnected.
+
 ## Dead-zone guard
 
 Movement safety is disabled by default unless a saved state enables it. Zones are persistent XY rectangles with a Z clearance and independent allowances for travel above the fixture, exit, pure Z lift/lower, or XY motion inside. The guard conservatively treats a move's XY bounding box as its swept area.
@@ -171,3 +211,5 @@ Test every zone with controlled moves. `G0.1` and `G1.1` are the renamed raw Kli
 - [Needle, bed-mesh, TCP, and live-offset stack](../../../Docs/needle-bed-mesh-tcp-offset-stack.pdf)
 - [Custom TCP module](config/scripts/README.md)
 - [Official Klipper documentation](https://www.klipper3d.org/)
+- [Official Moonraker file API](https://moonraker.readthedocs.io/en/latest/external_api/file_manager/)
+- [Official Moonraker printer API](https://moonraker.readthedocs.io/en/latest/external_api/printer/)

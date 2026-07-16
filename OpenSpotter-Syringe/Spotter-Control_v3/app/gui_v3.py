@@ -2,11 +2,11 @@ import os
 import traceback
 import json
 import math
+from pathlib import Path
 
 from tkinter import messagebox, filedialog
 import tkinter as tk
-from tkinter.ttk import Notebook, Style, Combobox, Scrollbar
-from PIL import ImageTk, Image
+from tkinter.ttk import Notebook, Style, Combobox
 
 
 from .SpotterFunctions import entries_to_dict, save_defaults, write_state
@@ -16,7 +16,8 @@ from .grid import Grid
 from .spiral_grid import SpiralGrid
 from .gcode_generation import save_file
 from .canvas_drawer import CanvasDrawer
-from .paths import GCODE_DIR, IMAGE_DIR, VISUAL_OBJECT_CONFIG, WORKFLOW_CONFIG
+from .machine_parameters_window import MachineParametersWindow
+from .paths import GCODE_DIR, VISUAL_OBJECT_CONFIG, WORKFLOW_CONFIG
 from .runtime_logging import get_logger, log_options
 from .visual_objects import VisualObjectStore
 
@@ -52,6 +53,11 @@ class DropletGui(tk.Tk):
                 objects=self.visual_objects,
             )
         self.global_input_frame = None
+        self.machine_parameters_window = None
+        self.machine_control_panel = None
+        self.machine_controller = None
+        self.moonraker_connection_window = None
+        self._closing = False
         self.canvas_frame = None
         self.canvas = None
         self.grid_tabs = None
@@ -60,6 +66,7 @@ class DropletGui(tk.Tk):
         self.spiral_tab_dict = {}  # Map 1-based spiral number to spiral object
 
         self.entry = []
+        self.global_locked = tk.BooleanVar(master=self, value=True)
         self.grid_count = 0
         self.spiral_count = 0
 
@@ -107,9 +114,9 @@ class DropletGui(tk.Tk):
         self.main_frame.grid(sticky='nsew', padx=10, pady=10)
         self.main_frame.rowconfigure(0, weight=0)
         self.main_frame.rowconfigure(1, weight=1)
-        self.main_frame.columnconfigure(0, weight=1)
-        self.main_frame.columnconfigure(1, weight=2)
-        self.main_frame.columnconfigure(2, weight=1)
+        self.main_frame.columnconfigure(0, weight=3, minsize=260)
+        self.main_frame.columnconfigure(1, weight=5, minsize=480)
+        self.main_frame.columnconfigure(2, weight=4, minsize=330)
 
         # ========== TOP BAR: identity, mode selector, and help ==========
         self.top_bar = tk.Frame(
@@ -162,13 +169,27 @@ class DropletGui(tk.Tk):
         self.workspace_mode_combo.pack(fill='x')
         self.workspace_mode_combo.bind('<<ComboboxSelected>>', lambda _e=None: self._switch_workspace_mode())
 
+        self.machine_parameters_button = tk.Button(
+            self.top_bar,
+            text='MACHINE PARAMETERS',
+            command=self.show_machine_parameters,
+            **button_options('secondary'),
+        )
+        self.machine_parameters_button.grid(
+            row=0,
+            column=3,
+            padx=(4, 4),
+            pady=10,
+            sticky='e',
+        )
+
         help_button = tk.Button(
             self.top_bar,
             text='HELP',
             command=self.show_help,
             **button_options('ghost'),
         )
-        help_button.grid(row=0, column=3, padx=(4, 12), pady=10, sticky='e')
+        help_button.grid(row=0, column=4, padx=(4, 12), pady=10, sticky='e')
 
         # ========== LEFT FRAME: Grid Tabs ==========
         self.left_frame = tk.Frame(self.main_frame, bg=COLORS['bg_primary'])
@@ -230,7 +251,7 @@ class DropletGui(tk.Tk):
         
         self.canvas = tk.Canvas(
             self.canvas_frame,
-            width=800,
+            width=560,
             height=410,
             bg=COLORS['canvas'],
             highlightbackground=COLORS['border'],
@@ -244,7 +265,7 @@ class DropletGui(tk.Tk):
         canvas_controls_frame.grid(row=2, column=0, sticky='ew', padx=8, pady=(0, 8))
 
         # Interaction hint
-        hint = tk.Label(canvas_controls_frame, text='TCP CROSS  X0 / Y0    |    +X RIGHT / +Y DOWN    |    SCROLL  ZOOM    |    DRAG  PAN', font=FONTS['caption'],
+        hint = tk.Label(canvas_controls_frame, text='TCP + X0/Y0  |  AMBER X REQUESTED HEAD  |  +X RIGHT / +Y DOWN  |  WHEEL ZOOM  |  DRAG PAN', font=FONTS['caption'],
                         fg=COLORS['text_muted'], bg=COLORS['bg_secondary'])
         hint.pack(side='left', padx=(0, 5), pady=2)
 
@@ -323,101 +344,36 @@ class DropletGui(tk.Tk):
 
         self._load_canvas_parameter_defaults()
 
-        # ========== RIGHT FRAME: Global Configuration and Pictures ==========
+        # ========== RIGHT FRAME: Machine control host ==========
         self.right_frame = tk.Frame(self.main_frame, bg=COLORS['bg_primary'])
         self.right_frame.grid(row=1, column=2, sticky='nsew', padx=(4, 0))
         self.right_frame.rowconfigure(0, weight=1)
-        self.right_frame.rowconfigure(1, weight=0)
         self.right_frame.columnconfigure(0, weight=1)
 
-        # ---- Global input frame ----
-        self.global_frame = tk.Frame(self.right_frame, bg=COLORS['bg_secondary'], relief='flat', bd=0, highlightbackground=COLORS['border'], highlightthickness=1)
-        self.global_frame.grid(row=0, column=0, sticky='nsew')
-        self.global_frame.columnconfigure(0, weight=1)
-        self.global_frame.rowconfigure(1, weight=1)
-
-        # Header frame with label and lock button
-        global_header_frame = tk.Frame(self.global_frame, bg=COLORS['bg_secondary'])
-        global_header_frame.grid(row=0, column=0, sticky='ew', padx=10, pady=8)
-        global_header_frame.columnconfigure(0, weight=1)
-        global_header_frame.columnconfigure(1, weight=0)
-
-        global_label = tk.Label(global_header_frame, text="GLOBAL MACHINE PARAMETERS", font=FONTS['label'],
-                               fg=COLORS['text_primary'], bg=COLORS['bg_secondary'])
-        global_label.grid(row=0, column=0, sticky='w')
-
-        # Lock/Unlock button
-        self.global_locked = tk.BooleanVar(value=True)
-        self.lock_button = tk.Button(
-            global_header_frame,
-            text="LOCKED",
-            command=self._toggle_global_lock,
-            **button_options('ghost'),
-        )
-        self.lock_button.grid(row=0, column=1, sticky='e', padx=(8, 0))
-
-                # ---- Scrollable Global Input Frame ----
-        global_container = tk.Frame(self.global_frame, bg=COLORS['bg_secondary'])
-        global_container.grid(row=1, column=0, sticky='nsew', padx=8, pady=(0, 8))
-        global_container.rowconfigure(0, weight=1)
-        global_container.columnconfigure(0, weight=1)
-
-        global_canvas = tk.Canvas(
-            global_container,
+        self.machine_panel_host = tk.Frame(
+            self.right_frame,
             bg=COLORS['bg_secondary'],
-            highlightthickness=0
+            relief='flat',
+            bd=0,
+            highlightbackground=COLORS['border'],
+            highlightthickness=1,
         )
+        self.machine_panel_host.grid(row=0, column=0, sticky='nsew')
+        self.machine_panel_host.rowconfigure(0, weight=1)
+        self.machine_panel_host.columnconfigure(0, weight=1)
 
-        global_scrollbar = Scrollbar(
-            global_container,
-            orient='vertical',
-            command=global_canvas.yview,
+        self.machine_parameters_window = MachineParametersWindow(
+            self,
+            locked_var=self.global_locked,
+            on_toggle_lock=self._toggle_global_lock,
+            on_save=lambda: self._run_action(
+                self.check_saves,
+                "Save Defaults",
+            ),
         )
-
-        self.global_input_frame = tk.Frame(
-            global_canvas,
-            bg=COLORS['bg_secondary']
-        )
-
-        self.global_input_frame.bind(
-            "<Configure>",
-            lambda e: global_canvas.configure(
-                scrollregion=global_canvas.bbox("all")
-            )
-        )
-
-        global_window = global_canvas.create_window(
-            (0, 0),
-            window=self.global_input_frame,
-            anchor="nw"
-        )
-
-        global_canvas.bind(
-            "<Configure>",
-            lambda event: global_canvas.itemconfigure(global_window, width=event.width),
-        )
-
-        global_canvas.configure(yscrollcommand=global_scrollbar.set)
-
-        global_canvas.grid(row=0, column=0, sticky='nsew')
-        global_scrollbar.grid(row=0, column=1, sticky='ns')
-
-
-        # ---- Pictures frame (below global config) ----
-        self.pictures_frame = tk.Frame(self.right_frame, bg=COLORS['bg_secondary'], relief='flat', bd=0, highlightbackground=COLORS['border'], highlightthickness=1)
-        self.pictures_frame.grid(row=1, column=0, sticky='nsew', pady=(5, 0), padx=0)
-        self.pictures_frame.columnconfigure(0, weight=1)
-        self.pictures_frame.columnconfigure(1, weight=1)
-
-        pictures_label = tk.Label(self.pictures_frame, text="REFERENCE IMAGERY", font=FONTS['label'],
-                                 fg=COLORS['text_primary'], bg=COLORS['bg_secondary'])
-        pictures_label.grid(row=0, column=0, columnspan=2, sticky='ew', padx=10, pady=8)
-
-        self.picture_frame = tk.Frame(self.pictures_frame, bg=COLORS['bg_secondary'])
-        self.picture_frame.grid(row=1, column=0, columnspan=2, sticky='nsew', padx=8, pady=(0, 8))
-        self.picture_frame.columnconfigure(0, weight=1)
-        self.picture_frame.columnconfigure(1, weight=1)
-        self.adding_pictures()
+        # Compatibility for generation/profile code that expects this attribute.
+        self.global_input_frame = self.machine_parameters_window.input_frame
+        self.lock_button = self.machine_parameters_window.lock_button
 
         # start canvas drawer
         try:
@@ -920,12 +876,118 @@ class DropletGui(tk.Tk):
             'Grid mode manages row/column spotting tabs.\n\n'
             'Spiral mode manages spiral pattern tabs with drop or continuous extrusion.\n\n'
             'Use the dropdown at the top to switch between modes, then add or remove tabs for that mode.\n\n'
+            'Machine Control connects to Moonraker, generates an immutable snapshot of the current mode, '
+            'uploads the exact G-code artifact, and starts it through virtual SD. Pause/Resume and Stop '
+            'control that virtual-SD job. Emergency Stop and manual M112 use Moonraker’s independent '
+            'HTTP emergency-stop endpoint. Guarded controls require the current OPENSPOTTER_CONTRACT_V3 '
+            'firmware macros and stay disabled when they are missing or stale.\n\n'
+            'XYZ jog requires Klippy ready/idle, inactive virtual SD, homed XYZ, needle offsets and '
+            'bed mesh off, and a feed of at least 30 mm/min. Safe Home uses the reviewed sensorless '
+            'settle, release, and physical-clearance sequence. Live Z is '
+            'available only during an active job with needle offsets enabled. The G-code cursor is '
+            'Moonraker’s virtual-SD read/queued position; it does not prove that physical motion is complete.\n\n'
+            'Manual / Console parses a small allowlist: diagnostic queries plus bounded G90/G91 and '
+            'G0/G1 XYZ/F tests with explicit mode/feed and a 60-second cap. Unknown or unsafe commands '
+            'are blocked. A partial error, timeout, disconnect, or emergency stop interlocks normal '
+            'controls until the printer is inspected and monitoring reconnects.\n\n'
             'The canvas uses the CAPTRON TCP beam crossing as X0/Y0, with +X right and +Y down. '
+            'When Moonraker supplies fresh homed XY telemetry, an amber X marks Klipper’s live '
+            'requested toolhead trajectory in raw carriage coordinates. It is not encoder feedback '
+            'or the logical needle-tip target when TCP offsets are active. '
             'Use Visual Objects to edit rectangles, circles, and imported images. '
             'X, Y, width, and height may be linked to program inputs; changing a '
             'linked value writes back only when that input is unlocked.'
         )
         open_secondary_window(message, title='Help')
+
+    def show_machine_parameters(self):
+        """Reveal the persistent global machine-parameter editor."""
+        return self.machine_parameters_window.show()
+
+    def initialize_machine_control(self):
+        """Create and start the Moonraker panel after startup fields are loaded."""
+        if self.machine_controller is not None:
+            return self.machine_controller
+
+        from .machine.connection_settings import load_connection_settings
+        from .machine_control_panel import MachineControlPanel
+        from .machine_controller import MachineControlController
+        from .moonraker_connection_window import MoonrakerConnectionWindow
+
+        settings_path = Path(self.config_dir) / "config_moonraker.json"
+
+        def load_runtime_config():
+            return load_connection_settings(settings_path).to_moonraker_config()
+
+        canvas_drawer = getattr(self, "canvas_drawer", None)
+        position_sink = getattr(
+            canvas_drawer,
+            "set_toolhead_position",
+            None,
+        )
+        panel = MachineControlPanel(self.machine_panel_host)
+        controller = MachineControlController(
+            self,
+            panel,
+            load_runtime_config,
+            position_sink=position_sink if callable(position_sink) else None,
+        )
+        settings_window = MoonrakerConnectionWindow(
+            self,
+            path=settings_path,
+            on_saved=controller.apply_config,
+        )
+        controller.set_settings_window(settings_window)
+
+        self.machine_control_panel = panel
+        self.machine_controller = controller
+        self.moonraker_connection_window = settings_window
+        self.protocol("WM_DELETE_WINDOW", self.close_application)
+        controller.start()
+        return controller
+
+    def close_application(self):
+        """Stop local monitoring cleanly; an active Klipper job is not cancelled."""
+        if self._closing:
+            return
+        controller = self.machine_controller
+        if controller is not None:
+            view = controller.current_view()
+            if controller.has_unresolved_operation:
+                confirmed = messagebox.askyesno(
+                    "Close during machine operation",
+                    (
+                        "A machine operation is still in flight or its outcome "
+                        "is unresolved.\n\nClosing stops local monitoring only "
+                        "and does not prove that Klipper did not accept motion. "
+                        "Keep this window open and inspect live state whenever "
+                        "possible.\n\nClose anyway?"
+                    ),
+                    parent=self,
+                )
+                if not confirmed:
+                    return
+            elif (
+                view.print_state in {"printing", "paused"}
+                or view.virtual_sd_active
+            ):
+                confirmed = messagebox.askyesno(
+                    "Close OpenSpotter Control",
+                    (
+                        "A virtual-SD job is still active.\n\n"
+                        "Closing this application stops local monitoring only; "
+                        "Klipper will continue the job. Close anyway?"
+                    ),
+                    parent=self,
+                )
+                if not confirmed:
+                    return
+        self._closing = True
+        try:
+            if controller is not None:
+                controller.shutdown()
+        finally:
+            self.destroy()
 
     def _add_active_object(self):
         if self._current_workspace_mode() == 'spiral':
@@ -1218,41 +1280,6 @@ class DropletGui(tk.Tk):
         _set_if_present(self.disp_v2_entry, "disp_v2")
         _set_if_present(self.disp_d2_entry, "disp_d2")
 
-
-
-    def adding_pictures(self):
-        resampling = Image.Resampling.LANCZOS
-
-        for column, (filename, caption) in enumerate(
-            (("BasePlate.png", "BASE PLATE"), ("spots.png", "SPOT ARRAY"))
-        ):
-            try:
-                with Image.open(IMAGE_DIR / filename) as source:
-                    image = source.convert("RGBA")
-                    image.thumbnail((160, 105), resampling)
-                photo = ImageTk.PhotoImage(image)
-            except (OSError, ValueError):
-                continue
-
-            tile = tk.Frame(self.picture_frame, bg=COLORS['bg_tertiary'])
-            tile.grid(row=0, column=column, padx=4, pady=4, sticky='nsew')
-            label_picture = tk.Label(
-                tile,
-                image=photo,
-                bg=COLORS['bg_tertiary'],
-                bd=0,
-                highlightthickness=0,
-            )
-            label_picture.image = photo
-            label_picture.pack(padx=6, pady=(6, 2))
-            tk.Label(
-                tile,
-                text=caption,
-                bg=COLORS['bg_tertiary'],
-                fg=COLORS['text_muted'],
-                font=FONTS['caption'],
-            ).pack(pady=(0, 5))
-
     def save_file(self):
         return save_file(self)
 
@@ -1263,7 +1290,8 @@ class DropletGui(tk.Tk):
             result = messagebox.showwarning(
                 "Unlock machine parameters",
                 "Editing machine geometry can create unsafe travel. Verify all values before generating or running G-code.",
-                type=messagebox.OKCANCEL
+                type=messagebox.OKCANCEL,
+                parent=self.machine_parameters_window,
             )
             if result == messagebox.OK:
                 # User confirmed, unlock the fields
@@ -1408,6 +1436,21 @@ class DropletGui(tk.Tk):
             workflow_path = os.path.join(self.config_dir, WORKFLOW_CONFIG.name)
             workflow_store = WorkflowStore(workflow_path)
             validated_workflow = workflow_store.validate(parsed["workflow"])
+            replace_workflow = messagebox.askyesno(
+                "Replace executable G-code workflow",
+                (
+                    "This profile contains an embedded G-code workflow. Loading "
+                    "it will replace the active executable machine-command "
+                    "templates, not only the visible recipe values.\n\n"
+                    "Replace the active workflow with the profile workflow?"
+                ),
+                parent=self,
+            )
+            if not replace_workflow:
+                logger.info(
+                    "profile.load_cancelled | reason=embedded_workflow_rejected"
+                )
+                return
 
         global_settings = parsed.get("global_settings", {})
         if global_settings:

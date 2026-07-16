@@ -7,8 +7,9 @@ OpenSpotter Hub is an open-source workspace for liquid-handling and spotting pla
 - [OpenSpotter-Syringe](OpenSpotter-Syringe/README.md) is the active syringe-based spotting implementation.
 - [OpenSpotter-JetValve](OpenSpotter-JetValve/README.md) is a reserved placeholder; no JetValve implementation is present yet.
 
-![OpenSpotter-Syringe hardware](OpenSpotter-Syringe/Spotter.JPEG)
+![OpenSpotter-Syringe V1 hardware](OpenSpotter-Syringe/Spotter.JPEG)
 
+![OpenSpotter-Syringe V2 hardware](OpenSpotter-Syringe/SpotterV2.JPEG)
 ## Syringe project map
 
 - [Getting started](OpenSpotter-Syringe/GETTING_STARTED.md)

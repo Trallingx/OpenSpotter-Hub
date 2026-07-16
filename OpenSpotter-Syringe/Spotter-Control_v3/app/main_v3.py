@@ -2,7 +2,6 @@ import json
 
 from .gui_v3 import DropletGui
 from .SpotterFunctions import read_defaults
-from .grid import create_labels
 from .input_configs import GLOBAL_FIELDS
 from .paths import CONFIG_DIR, LOG_DIR, ensure_runtime_dirs
 from .runtime_logging import configure_logging, get_logger, log_options
@@ -34,7 +33,12 @@ def main():
             global_options=global_defaults,
         )
 
-        create_labels(GLOBAL_FIELDS, global_defaults, gui.entry, gui.global_input_frame)
+        gui.machine_parameters_window.populate(
+            GLOBAL_FIELDS,
+            global_defaults,
+            gui.entry,
+            gui=gui,
+        )
         max_grid_count = max(1, int(global_defaults.get("max_grid_count", 6)))
 
         # Read grid state from JSON and create grids accordingly.
@@ -65,6 +69,7 @@ def main():
 
         # Set global fields to locked state by default.
         gui._update_global_fields_state()
+        gui.initialize_machine_control()
         log_options(
             logger,
             "application.ready",
