@@ -26,11 +26,15 @@ import math
 #   physical X beam line: rises toward X- (-45 degrees)
 #   physical Y beam line: rises toward X+ (+45 degrees)
 #
-# The default values preserve the old macro's 45-degree optical-cross transform:
-#   x_beam_coord = ( x + y) / sqrt(2)
-#   y_beam_coord = (-x + y) / sqrt(2)
-DEFAULT_X_BEAM_NORMAL = (0.70710678118, 0.70710678118)
-DEFAULT_Y_BEAM_NORMAL = (-0.70710678118, 0.70710678118)
+# The default values preserve the physical 45-degree optical cross after the
+# machine Y basis is reflected so positive Y points down in the top view:
+#   x_beam_coord = ( x - y) / sqrt(2)
+#   y_beam_coord = (-x - y) / sqrt(2)
+DEFAULT_X_BEAM_NORMAL = (0.70710678118, -0.70710678118)
+DEFAULT_Y_BEAM_NORMAL = (-0.70710678118, -0.70710678118)
+DEFAULT_X_DIRECTION = -1.0
+DEFAULT_Y_DIRECTION = -1.0
+TCP_COORDINATE_VERSION = 2
 TIP_SEARCH_EPSILON = 0.000001
 FINAL_CENTER_Z_DROP = 2.0
 PERSISTED_RESULT_NAMES = (
@@ -96,10 +100,10 @@ class TCPCalibration:
         self.default_y_sweep_travel = config.getfloat(
             'y_sweep_travel', 10.0, above=0.)
         self.default_x_direction = _direction_sign(
-            config.getfloat('x_direction', -1.0),
+            config.getfloat('x_direction', DEFAULT_X_DIRECTION),
             'tcp_calibration x_direction', config.error)
         self.default_y_direction = _direction_sign(
-            config.getfloat('y_direction', 1.0),
+            config.getfloat('y_direction', DEFAULT_Y_DIRECTION),
             'tcp_calibration y_direction', config.error)
         self.default_xy_passes = config.getint('xy_passes', 2, minval=1)
         self.default_speed = config.getfloat('speed', 5.0, above=0.)
@@ -515,6 +519,22 @@ class TCPCalibration:
             "(tcp_power_on=%s). Run TCPON or TCPSTART before calibration."
             % (power_on,))
 
+    def _require_current_tcp_calibration(self):
+        svv = self._get_saved_variables()
+        try:
+            saved_version = int(float(svv.get('tcp_coordinate_version', 0)))
+        except (TypeError, ValueError):
+            saved_version = 0
+        if (svv.get('tcp_ready', False) is True
+                and saved_version == TCP_COORDINATE_VERSION):
+            return svv
+        raise self.printer.command_error(
+            "Saved TCP offsets are not valid for coordinate version %d "
+            "(tcp_ready=%s, saved version=%s). Run TCPSTART/TCPCALIBRATE "
+            "again before using TCP-corrected motion."
+            % (TCP_COORDINATE_VERSION, svv.get('tcp_ready', False),
+               saved_version))
+
     cmd_TCPCALIBRATE_help = (
         "Continuously calibrate needle TCP using the optical cross")
     def cmd_TCPCALIBRATE(self, gcmd):
@@ -648,6 +668,7 @@ class TCPCalibration:
         # available through get_status() for the current Klipper session.
         for name in PERSISTED_RESULT_NAMES:
             self._save_float('tcp_' + name, self.last_result[name])
+        self._save_float('tcp_coordinate_version', TCP_COORDINATE_VERSION)
         self._save_bool('tcp_ready', True)
         gcmd.respond_info(
             "TCP: done. Tip X=%.6f Y=%.6f Z=%.6f offsets X=%.6f Y=%.6f "
@@ -675,8 +696,11 @@ class TCPCalibration:
     def cmd_TCPSHOWOFFSETS(self, gcmd):
         svv = self._get_saved_variables()
         gcmd.respond_info(
-            "TCP saved: tip X=%s Y=%s Z=%s offsets X=%s Y=%s Z=%s"
-            % (svv.get('tcp_tip_x', 'unset'),
+            "TCP saved: version=%s ready=%s tip X=%s Y=%s Z=%s offsets "
+            "X=%s Y=%s Z=%s"
+            % (svv.get('tcp_coordinate_version', 'unset'),
+               svv.get('tcp_ready', False),
+               svv.get('tcp_tip_x', 'unset'),
                svv.get('tcp_tip_y', 'unset'),
                svv.get('tcp_tip_z', 'unset'),
                svv.get('tcp_offset_x', 'unset'),
@@ -687,7 +711,7 @@ class TCPCalibration:
         "Move to a nominal XYZ plus saved TCP offsets. Args: X Y Z [F]")
     def cmd_TCPMOVEWITHOFFSET(self, gcmd):
         self._require_homed()
-        svv = self._get_saved_variables()
+        svv = self._require_current_tcp_calibration()
         x = gcmd.get_float('X') + float(svv.get('tcp_offset_x', 0.0))
         y = gcmd.get_float('Y') + float(svv.get('tcp_offset_y', 0.0))
         z = gcmd.get_float('Z') + float(svv.get('tcp_offset_z', 0.0))
@@ -704,6 +728,7 @@ class TCPCalibration:
         status['require_bltouch_parked'] = self.require_bltouch_parked
         status['tcp_power_on'] = (
             self._get_saved_variables().get('tcp_power_on', False) is True)
+        status['coordinate_version'] = TCP_COORDINATE_VERSION
         return status
 
 

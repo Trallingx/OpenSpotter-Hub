@@ -1,0 +1,157 @@
+{
+  "version": 2,
+  "objects": [
+    {
+      "id": "visual-183e8dcf50e44e438d01f4cee3c1e4ae",
+      "type": "rectangle",
+      "x": -30.0,
+      "y": -97.0,
+      "width": 247.0,
+      "height": 253.0,
+      "color": "#c0c0c0",
+      "text": "Baseplate",
+      "text_size": 10,
+      "bindings": {}
+    },
+    {
+      "id": "legacy-build-plate",
+      "type": "rectangle",
+      "x": 31.0,
+      "y": -30.0,
+      "width": 186.0,
+      "height": 186.0,
+      "color": "#ffffff",
+      "text": "Build plate",
+      "text_size": 10,
+      "bindings": {}
+    },
+    {
+      "id": "legacy-acceptance-limit",
+      "type": "rectangle",
+      "x": 36.0,
+      "y": -25.0,
+      "width": 176.0,
+      "height": 176.0,
+      "color": "#263c44",
+      "text": "Acceptance limit",
+      "text_size": 9,
+      "bindings": {}
+    },
+    {
+      "id": "legacy-container-2",
+      "type": "circle",
+      "x": 16.0,
+      "y": 141.0,
+      "width": 12.0,
+      "height": 12.0,
+      "color": "#ffff80",
+      "text": "2",
+      "text_size": 9,
+      "bindings": {
+        "x": "global.container2_x",
+        "y": "global.container2_y"
+      }
+    },
+    {
+      "id": "legacy-container-3",
+      "type": "circle",
+      "x": 116.0,
+      "y": 208.0,
+      "width": 12.0,
+      "height": 12.0,
+      "color": "#1c252a",
+      "text": "3",
+      "text_size": 9,
+      "bindings": {
+        "x": "global.container3_x",
+        "y": "global.container3_y"
+      }
+    },
+    {
+      "id": "legacy-container-4",
+      "type": "circle",
+      "x": 218.0,
+      "y": 115.0,
+      "width": 12.0,
+      "height": 12.0,
+      "color": "#1c252a",
+      "text": "4",
+      "text_size": 9,
+      "bindings": {
+        "x": "global.container4_x",
+        "y": "global.container4_y"
+      }
+    },
+    {
+      "id": "legacy-container-5",
+      "type": "circle",
+      "x": 218.0,
+      "y": 65.0,
+      "width": 12.0,
+      "height": 12.0,
+      "color": "#1c252a",
+      "text": "5",
+      "text_size": 9,
+      "bindings": {
+        "x": "global.container5_x",
+        "y": "global.container5_y"
+      }
+    },
+    {
+      "id": "legacy-container-6",
+      "type": "circle",
+      "x": 218.0,
+      "y": 15.0,
+      "width": 12.0,
+      "height": 12.0,
+      "color": "#1c252a",
+      "text": "6",
+      "text_size": 9,
+      "bindings": {
+        "x": "global.container6_x",
+        "y": "global.container6_y"
+      }
+    },
+    {
+      "id": "captron-tcp",
+      "type": "image",
+      "x": -30.0,
+      "y": -30.0,
+      "width": 60.0,
+      "height": 60.0,
+      "color": "#1c252a",
+      "text": "CAPTRON TCP",
+      "text_size": 8,
+      "bindings": {},
+      "image_path": "assets/Captron-TCP.png"
+    },
+    {
+      "id": "visual-a7640e5455104d98848a5562cbac54cb",
+      "type": "image",
+      "x": -30.0,
+      "y": 46.0,
+      "width": 60.0,
+      "height": 110.0,
+      "color": "#9aa7b2",
+      "text": "LoadingBay",
+      "text_size": 10,
+      "bindings": {},
+      "image_path": "assets/LoadingBay.png"
+    },
+    {
+      "id": "visual-a1a87f6b18184f17b90c8e4f1b3cde9f",
+      "type": "circle",
+      "x": 16.0,
+      "y": 208.0,
+      "width": 12.0,
+      "height": 12.0,
+      "color": "#9aa7b2",
+      "text": "1",
+      "text_size": 10,
+      "bindings": {
+        "x": "global.container1_x",
+        "y": "global.container1_y"
+      }
+    }
+  ]
+}

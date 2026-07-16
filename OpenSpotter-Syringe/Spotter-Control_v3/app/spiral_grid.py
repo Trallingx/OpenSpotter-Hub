@@ -3,7 +3,8 @@ import os
 import tkinter as tk
 import tkinter.ttk as ttk
 
-from .input_configs import SPIRAL_FIELDS, COLORS, FONTS
+from .input_configs import SPIRAL_FIELDS
+from .ui_theme import COLORS, FONTS, entry_options
 from .grid import create_labels
 
 
@@ -39,37 +40,53 @@ class SpiralGrid(object):
     def set_grid_color(self, color):
         self.spiral_color_var.set(str(color).strip())
 
-    def get_spiral_params(self):
-        result = {}
-        for entry_widget, field in zip(self.spiral_entry, SPIRAL_FIELDS):
-            try:
-                result[field.key] = entry_widget.get()
-            except Exception:
-                result[field.key] = field.default
-        return result
-
     def create_spiral(self, config, background):
         self.frame = tk.Frame(self.gui, bg=COLORS['bg_primary'])
         self.frame.grid(row=0, column=0, sticky='nsew')
         self.frame.rowconfigure(0, weight=1)
         self.frame.columnconfigure(0, weight=1)
 
-        outer = tk.Frame(self.frame, bg=COLORS['bg_secondary'], relief='flat', bd=1, highlightbackground=COLORS['border'], highlightthickness=1)
-        outer.pack(fill='both', expand=True, padx=8, pady=8)
-        outer.columnconfigure(1, weight=1)
+        scroll_canvas = tk.Canvas(
+            self.frame,
+            bg=COLORS['bg_primary'],
+            highlightthickness=0,
+            bd=0,
+        )
+        scrollbar = ttk.Scrollbar(
+            self.frame,
+            orient='vertical',
+            command=scroll_canvas.yview,
+        )
+        scroll_canvas.configure(yscrollcommand=scrollbar.set)
+        scroll_canvas.grid(row=0, column=0, sticky='nsew', padx=(8, 0), pady=8)
+        scrollbar.grid(row=0, column=1, sticky='ns', padx=(0, 8), pady=8)
 
-        header = tk.Label(outer, text='Spiral Configuration', bg=COLORS['bg_secondary'], fg=COLORS['accent'], font=FONTS['header'])
+        outer = tk.Frame(self.frame, bg=COLORS['bg_secondary'], relief='flat', bd=0, highlightbackground=COLORS['border'], highlightthickness=1)
+        outer.columnconfigure(1, weight=1)
+        outer_window = scroll_canvas.create_window((0, 0), window=outer, anchor='nw')
+
+        def _update_scrollregion(_event=None):
+            scroll_canvas.configure(scrollregion=scroll_canvas.bbox('all'))
+
+        def _sync_content_width(event):
+            scroll_canvas.itemconfigure(outer_window, width=event.width)
+
+        outer.bind('<Configure>', _update_scrollregion)
+        scroll_canvas.bind('<Configure>', _sync_content_width)
+        self.scroll_canvas = scroll_canvas
+
+        header = tk.Label(outer, text='SPIRAL RECIPE', bg=COLORS['bg_secondary'], fg=COLORS['text_primary'], font=FONTS['label'])
         header.grid(row=0, column=0, columnspan=3, pady=8, padx=8)
 
         config_path = os.path.join(self.config_dir, config)
-        with open(config_path, 'r') as f:
+        with open(config_path, 'r', encoding="utf-8") as f:
             defaults = json.load(f)
 
         default_name = defaults.get('spiral_name', f'Spiral {self.spiral_number}' if self.spiral_number is not None else 'Spiral')
         self.spiral_name_var.set(str(default_name))
 
         name_label = tk.Label(outer, text='Spiral Name', bg=COLORS['bg_secondary'], fg=COLORS['text_primary'], font=FONTS['small'])
-        name_entry = tk.Entry(outer, textvariable=self.spiral_name_var, bd=0, relief='flat', bg=COLORS['bg_tertiary'], fg=COLORS['accent'], font=(FONTS['small'][0], FONTS['small'][1], 'bold'), insertbackground=COLORS['accent'])
+        name_entry = tk.Entry(outer, textvariable=self.spiral_name_var, **entry_options())
         name_label.grid(row=1, column=0, sticky='WE', pady=4, padx=8)
         name_entry.grid(row=1, column=1, sticky='WE', padx=4, pady=4)
 
@@ -87,7 +104,7 @@ class SpiralGrid(object):
         def _notify_change(_event=None):
             try:
                 if hasattr(self.gui, 'canvas_drawer') and self.gui.canvas_drawer:
-                    self.gui.canvas_drawer._poll()
+                    self.gui.canvas_drawer.request_redraw()
             except Exception:
                 pass
 

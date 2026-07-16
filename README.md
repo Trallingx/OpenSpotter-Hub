@@ -1,26 +1,26 @@
-# OpenSpotter-Hub
+# OpenSpotter Hub
 
-OpenSpotter-Hub is an open source project for development of different liquid handling and spotting platforms.
-The repository contains the desktop control GUI, G-code generation logic, Klipper configuration examples, and CAD assets for a R2R JetValve Spotter and Syringe Spotter. 
+OpenSpotter Hub is an open-source workspace for liquid-handling and spotting platforms. The repository currently contains one implemented platform, OpenSpotter-Syringe, together with its desktop control software, Klipper configuration, mechanical files, and engineering references.
 
-## JetValve Spotter Examples
+## Platforms
 
-to be added... 
+- [OpenSpotter-Syringe](OpenSpotter-Syringe/README.md) is the active syringe-based spotting implementation.
+- [OpenSpotter-JetValve](OpenSpotter-JetValve/README.md) is a reserved placeholder; no JetValve implementation is present yet.
 
-## Syringe Spotter Examples
+![OpenSpotter-Syringe hardware](OpenSpotter-Syringe/Spotter.JPEG)
 
-1. OpenSpotter-Syringe hardware
+## Syringe project map
 
-<img src="OpenSpotter-Syringe/Spotter.JPEG" alt="OpenSpotter-Syringe hardware" width="50%">
+- [Getting started](OpenSpotter-Syringe/GETTING_STARTED.md)
+- [Project scope](OpenSpotter-Syringe/PROJECT_DESCRIPTION.md)
+- [Control application](OpenSpotter-Syringe/Spotter-Control_v3/README.md)
+- [Klipper configuration](OpenSpotter-Syringe/Spotter-Control_v3/hardware/klipper/README.md)
+- [CAD files](OpenSpotter-Syringe/CAD/README.md)
+- [Engineering documents](OpenSpotter-Syringe/Docs/README.md)
+- [Complete documentation index](OpenSpotter-Syringe/DOCS_INDEX.md)
 
-2. Main control GUI
+## Safety and maturity
 
-<img src="OpenSpotter-Syringe/GUI.png" alt="Main control GUI" width="90%">
+This is research hardware, not a validated medical or production system. Verify wiring, travel limits, tool state, calibration, generated G-code, and fluid compatibility on the physical machine before enabling motion or dispensing. The included Klipper configuration targets an Einsy RAMBo 1.1a and must be reviewed for the actual build.
 
-
-
-
-
-## Contribution Rule
-
-When behavior, setup, architecture, or hardware configuration changes, update the matching documentation in the same change.
+The repository is licensed under the [MIT License](LICENSE.txt). Retain any additional file-level notices attached to adapted third-party material.

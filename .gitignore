@@ -22,5 +22,8 @@ dist/
 *.egg-info/
 
 # Runtime output
-Spotter-Control_v3/logs/*
-!Spotter-Control_v3/logs/.gitkeep
+OpenSpotter-Syringe/Spotter-Control_v3/logs/*
+!OpenSpotter-Syringe/Spotter-Control_v3/logs/.gitkeep
+OpenSpotter-Syringe/Spotter-Control_v3/output/gcodes/*
+!OpenSpotter-Syringe/Spotter-Control_v3/output/gcodes/.gitkeep
+*.tmp

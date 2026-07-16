@@ -1,60 +1,41 @@
 # OpenSpotter-Syringe
 
-OpenSpotter-Syringe is an open source syringe-based liquid handling and spotting platform.
-The repository contains the desktop control GUI, G-code generation logic, Klipper configuration examples, and CAD assets for the syringe spotter.
+OpenSpotter-Syringe is an open-source, syringe-driven liquid-handling and spotting platform. It combines a Python/Tkinter experiment editor, reproducible G-code generation, Klipper configuration for an Einsy RAMBo 1.1a, and two generations of mechanical design files.
 
-## Examples
+![OpenSpotter-Syringe hardware](Spotter.JPEG)
 
-1. OpenSpotter-Syringe hardware
+## Current capabilities
 
-<img src="Spotter.JPEG" alt="OpenSpotter-Syringe hardware" width="50%">
+- Configure multiple droplet grids, cleaning and washing cycles, final rinses, and spiral paths.
+- Preview geometry in millimetres around the CAPTRON TCP beam crossing at X0/Y0.
+- Edit Start, Loading, Printing, Cleaning, and End G-code event blocks at runtime.
+- Save versioned JSON profiles beside generated G-code and load those profiles back into the application.
+- Calibrate a needle TCP with the retained Klipper optical-cross module.
+- Apply saved TCP offsets, bed mesh compensation, and a live needle-to-surface Z trim.
+- Use a neutral graphite scientific UI defined centrally in `app/ui_theme.py`.
 
-2. Main control GUI
+## Start here
 
-<img src="GUI.png" alt="Main control GUI" width="90%">
+- [GETTING_STARTED.md](GETTING_STARTED.md): install, validate, generate a job, and prepare hardware.
+- [Spotter-Control_v3/README.md](Spotter-Control_v3/README.md): application behavior and profile contract.
+- [Spotter-Control_v3/hardware/klipper/README.md](Spotter-Control_v3/hardware/klipper/README.md): configuration, commissioning, TCP calibration, and movement safety.
+- [CAD/README.md](CAD/README.md): mechanical-file inventory and manufacturing cautions.
+- [Docs/README.md](Docs/README.md): BOM, schematics, datasheets, calibration references, and photos.
+- [DOCS_INDEX.md](DOCS_INDEX.md): complete documentation map.
 
-3. Separate multi-grid layout
+Generated files default to `Spotter-Control_v3/output/gcodes`. That directory is intentionally ignored except for `.gitkeep`; it contains runtime output, not maintained examples.
 
-<img src="Gui_multigrid_separate.png" alt="Separate multi-grid layout" width="100%">
+## Repository layout
 
-4. Multi-parameter grid layout
+- `Spotter-Control_v3/app`: desktop UI, planners, workflow renderer, and pattern code.
+- `Spotter-Control_v3/config`: editable JSON defaults, workflow, visual layout, and UI state.
+- `Spotter-Control_v3/hardware/klipper`: active Klipper configuration and custom TCP module.
+- `Spotter-Control_v3/tests`: standard-library unit and integration tests.
+- `CAD`: native design files and manufacturing exports.
+- `Docs`: component and calibration references.
 
-<img src="gui_multiparameter_grid.png" alt="Multi-parameter grid layout" width="100%">
+## Project status
 
-## Start Here
+Software generation paths and configuration-level tests are present. Physical commissioning, hardware-in-the-loop validation, and experiment-specific risk assessment remain operator responsibilities. Computer vision, automatic lid handling, and a JetValve controller are not implemented in this repository.
 
-- [Spotter-Control_v3](Spotter-Control_v3): Python/Tkinter control application and G-code generator.
-- [CAD](CAD): mechanical design files and printable parts. (CAD will follow in future updates)
-- [Spotter.JPEG](Spotter.JPEG): reference image of the spotter hardware.
-- [DOCS_INDEX.md](DOCS_INDEX.md): documentation map.
-- [GETTING_STARTED.md](GETTING_STARTED.md): setup and contributor workflow.
-- [PROJECT_DESCRIPTION.md](PROJECT_DESCRIPTION.md): project scope and architecture.
-
-## Run The Control App
-
-```bash
-cd Spotter-Control_v3
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-python main.py
-```
-
-The app reads defaults from `Spotter-Control_v3/config`, uses assets from `Spotter-Control_v3/assets`, and saves generated G-code through the file dialog, which starts in `Spotter-Control_v3/output/gcodes`.
-
-## Repository Layout
-
-- [Spotter-Control_v3/app](Spotter-Control_v3/app): GUI, input schema, canvas preview, G-code generation, and plugins.
-- [Spotter-Control_v3/config](Spotter-Control_v3/config): editable JSON defaults for global, grid, spiral, and UI state.
-- [Spotter-Control_v3/assets](Spotter-Control_v3/assets): images and screenshots used by the app and docs.
-- [Spotter-Control_v3/hardware](Spotter-Control_v3/hardware): Klipper and syringe hardware configuration files.
-- [Spotter-Control_v3/output](Spotter-Control_v3/output): generated or example G-code output.
-- [Spotter-Control_v3/logs](Spotter-Control_v3/logs): runtime logs.
-
-## Publications
-
-- [ACS Sensors publication](https://pubs.acs.org/doi/10.1021/acssensors.5c02007)
-
-## Contribution Rule
-
-When behavior, setup, architecture, or hardware configuration changes, update the matching documentation in the same change.
+Related publication: [ACS Sensors, DOI 10.1021/acssensors.5c02007](https://pubs.acs.org/doi/10.1021/acssensors.5c02007).

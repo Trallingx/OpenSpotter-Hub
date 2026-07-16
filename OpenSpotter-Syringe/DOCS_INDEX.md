@@ -1,30 +1,26 @@
 # Documentation Index
 
-This repository keeps a compact documentation set for public orientation and maintenance.
+## Start
 
-## Start Here
+- [README.md](README.md): syringe-platform overview and current capabilities.
+- [GETTING_STARTED.md](GETTING_STARTED.md): install, validate, generate, and hardware preflight.
+- [PROJECT_DESCRIPTION.md](PROJECT_DESCRIPTION.md): scope, architecture, and maturity.
 
-1. [README.md](README.md)
-Purpose: public overview and repository orientation.
+## Application
 
-2. [GETTING_STARTED.md](GETTING_STARTED.md)
-Purpose: practical setup and contributor workflow.
+- [Spotter-Control_v3/README.md](Spotter-Control_v3/README.md): user-facing application behavior.
+- [Spotter-Control_v3/Spotter_Control_Dev.md](Spotter-Control_v3/Spotter_Control_Dev.md): source map and developer contracts.
+- [Spotter-Control_v3/config/config_gcode_workflow.json](Spotter-Control_v3/config/config_gcode_workflow.json): active machine-command workflow.
+- [Spotter-Control_v3/config/config_visual_objects.json](Spotter-Control_v3/config/config_visual_objects.json): display-only canvas layout.
 
-3. [PROJECT_DESCRIPTION.md](PROJECT_DESCRIPTION.md)
-Purpose: project scope, architecture, and current status.
+## Hardware and design
 
-## Control App Docs
+- [Spotter-Control_v3/hardware/klipper/README.md](Spotter-Control_v3/hardware/klipper/README.md): Klipper deployment, commissioning, calibration, and safety.
+- [Spotter-Control_v3/hardware/klipper/config/scripts/README.md](Spotter-Control_v3/hardware/klipper/config/scripts/README.md): custom TCP module installation.
+- [CAD/README.md](CAD/README.md): design generations and manufacturing exports.
+- [Docs/README.md](Docs/README.md): BOM, schematics, datasheets, calibration diagrams, and photos.
 
-- [Spotter-Control_v3/README.md](Spotter-Control_v3/README.md): control application details.
-- [Spotter-Control_v3/app](Spotter-Control_v3/app): Python source code.
-- [Spotter-Control_v3/config](Spotter-Control_v3/config): JSON defaults.
-- [Spotter-Control_v3/hardware](Spotter-Control_v3/hardware): Klipper and syringe configuration.
+## Maintenance
 
-## AI Maintenance Docs
-
-- [AGENTS.md](AGENTS.md): mandatory contribution and documentation rules.
-- [AGENT_DOC.md](AGENT_DOC.md): machine-readable project tracking context.
-
-## Maintenance Policy
-
-Whenever behavior changes, update code and documentation in the same change.
+- [AGENTS.md](AGENTS.md): contribution and documentation rules.
+- [AGENT_DOC.md](AGENT_DOC.md): compact machine-oriented architecture and invariants.

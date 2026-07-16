@@ -3,7 +3,8 @@ import os
 import tkinter as tk
 import tkinter.ttk as ttk
 
-from .input_configs import GRID_FIELDS, CLEANING_FIELDS, WASHING_FIELDS, COLORS, FONTS
+from .input_configs import GRID_FIELDS, CLEANING_FIELDS, WASHING_FIELDS
+from .ui_theme import COLORS, FONTS, entry_options
 
 
 class Grid(object):
@@ -15,8 +16,6 @@ class Grid(object):
         self.grid_name_var = tk.StringVar()
         self.grid_color_var = tk.StringVar()
         self.default_color = background
-        self.grid_entry = None
-        self.input_frame = None
         self.grid_entry = []
         self.cleaning_entry = []
         self.washing_entry = []
@@ -24,9 +23,6 @@ class Grid(object):
         self.washing_widgets = []  # Store washing widgets for show/hide
         self.wash_after_loading_widgets = []  # Store wash-after-loading widgets for show/hide
         self.final_rinse_widgets = []  # Store final rinse widgets for show/hide
-        self.grid = None
-        self.frame_row = frame_row
-        self.frame_col = frame_col
         self.create_grid(config, background)
 
     def get_grid_name(self):
@@ -66,7 +62,7 @@ class Grid(object):
         # Trigger canvas update
         try:
             if hasattr(self.gui, 'canvas_drawer') and self.gui.canvas_drawer:
-                self.gui.canvas_drawer._poll()
+                self.gui.canvas_drawer.request_redraw()
         except Exception:
             pass
 
@@ -89,7 +85,7 @@ class Grid(object):
         # Trigger canvas update
         try:
             if hasattr(self.gui, 'canvas_drawer') and self.gui.canvas_drawer:
-                self.gui.canvas_drawer._poll()
+                self.gui.canvas_drawer.request_redraw()
         except Exception:
             pass
 
@@ -105,7 +101,7 @@ class Grid(object):
         # Trigger canvas update
         try:
             if hasattr(self.gui, 'canvas_drawer') and self.gui.canvas_drawer:
-                self.gui.canvas_drawer._poll()
+                self.gui.canvas_drawer.request_redraw()
         except Exception:
             pass
 
@@ -120,7 +116,11 @@ class Grid(object):
 
         # Create canvas for scrolling
         canvas = tk.Canvas(main_container, bg=COLORS['bg_primary'], highlightthickness=0)
-        scrollbar = tk.Scrollbar(main_container, orient='vertical', command=canvas.yview, bg=COLORS['bg_secondary'], troughcolor=COLORS['bg_primary'])
+        scrollbar = ttk.Scrollbar(
+            main_container,
+            orient='vertical',
+            command=canvas.yview,
+        )
         scrollable_frame = tk.Frame(canvas, bg=COLORS['bg_primary'])
         
         scrollable_frame.bind(
@@ -128,7 +128,11 @@ class Grid(object):
             lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
         )
         
-        canvas.create_window((0, 0), window=scrollable_frame, anchor='nw')
+        scrollable_window = canvas.create_window((0, 0), window=scrollable_frame, anchor='nw')
+        canvas.bind(
+            '<Configure>',
+            lambda event: canvas.itemconfigure(scrollable_window, width=event.width),
+        )
         canvas.configure(yscrollcommand=scrollbar.set)
         
         canvas.grid(row=0, column=0, sticky='nsew')
@@ -140,22 +144,22 @@ class Grid(object):
         # Store canvas reference for scroll wheel binding
         self.canvas = canvas
 
-        self.grid_input_frame = tk.Frame(self.master_input_frame, bg=COLORS['bg_secondary'], relief='flat', bd=1, highlightbackground=COLORS['border'], highlightthickness=1)
+        self.grid_input_frame = tk.Frame(self.master_input_frame, bg=COLORS['bg_secondary'], relief='flat', bd=0, highlightbackground=COLORS['border'], highlightthickness=1)
         self.grid_input_frame.pack(fill='x', padx=8, pady=8)
         
-        Grid_label = tk.Label(self.grid_input_frame, text="Grid Configuration", bg=COLORS['bg_secondary'], fg=COLORS['accent'], 
-                             font=FONTS['header'])
+        Grid_label = tk.Label(self.grid_input_frame, text="GRID RECIPE", bg=COLORS['bg_secondary'], fg=COLORS['text_primary'],
+                             font=FONTS['label'])
         Grid_label.grid(row=0, column=0, columnspan=3, pady=8, padx=8)
 
-        self.cleaning_input_frame = tk.Frame(self.master_input_frame, bg=COLORS['bg_secondary'], relief='flat', bd=1, highlightbackground=COLORS['border'], highlightthickness=1)
+        self.cleaning_input_frame = tk.Frame(self.master_input_frame, bg=COLORS['bg_secondary'], relief='flat', bd=0, highlightbackground=COLORS['border'], highlightthickness=1)
         self.cleaning_input_frame.pack(fill='x', padx=8, pady=8)
         
-        Cleaning_label = tk.Label(self.cleaning_input_frame, text="Cleaning Configuration", bg=COLORS['bg_secondary'], fg=COLORS['accent'],
-                                 font=FONTS['header'])
+        Cleaning_label = tk.Label(self.cleaning_input_frame, text="MAINTENANCE CYCLE", bg=COLORS['bg_secondary'], fg=COLORS['text_primary'],
+                                 font=FONTS['label'])
         Cleaning_label.grid(row=0, column=0, columnspan=3, pady=8, padx=8)
 
         config_path = os.path.join(self.config_dir, config)
-        with open(config_path, "r") as f:
+        with open(config_path, "r", encoding="utf-8") as f:
             grid_defaults = json.load(f)
 
         def _to_bool(value, default=False):
@@ -183,10 +187,7 @@ class Grid(object):
         grid_name_entry = tk.Entry(
             self.grid_input_frame,
             textvariable=self.grid_name_var,
-            bd=0, relief='flat',
-            bg=COLORS['bg_tertiary'], fg=COLORS['accent'],
-            font=(FONTS['small'][0], FONTS['small'][1], 'bold'),
-            insertbackground=COLORS['accent']
+            **entry_options(),
         )
         grid_name_label.grid(row=1, column=0, sticky="WE", pady=4, padx=8)
         grid_name_entry.grid(row=1, column=1, sticky="WE", padx=4, pady=4)
@@ -216,7 +217,7 @@ class Grid(object):
         def _notify_color_change(_event=None):
             try:
                 if hasattr(self.gui, 'canvas_drawer') and self.gui.canvas_drawer:
-                    self.gui.canvas_drawer._poll()
+                    self.gui.canvas_drawer.request_redraw()
             except Exception:
                 pass
 
@@ -367,7 +368,7 @@ def create_labels(fields, defaults, entries, input_frame,
             if tab_name in seen or not tab_name:
                 continue
             seen.append(tab_name)
-            frame = tk.Frame(notebook, bg=COLORS['bg_tertiary'], relief='flat', bd=1, highlightbackground=COLORS['border'], highlightthickness=1)
+            frame = tk.Frame(notebook, bg=COLORS['bg_secondary'], relief='flat', bd=0, highlightbackground=COLORS['border'], highlightthickness=1)
             for col in range(3):
                 frame.columnconfigure(col, weight=1 if col == 1 else 0)
             # Keep the first rows unstretched so inputs stay at the top
@@ -387,10 +388,11 @@ def create_labels(fields, defaults, entries, input_frame,
         else:
             row = start_row + i
 
+        field_background = parent_for_field.cget('bg')
         label = tk.Label(
             parent_for_field,
             text=field.label,
-            bg=COLORS['bg_secondary'], fg=COLORS['text_primary'],
+            bg=field_background, fg=COLORS['text_secondary'],
             font=FONTS['small']
         )
 
@@ -411,18 +413,13 @@ def create_labels(fields, defaults, entries, input_frame,
                 font=FONTS['small']
             )
         else:
-            entry = tk.Entry(
-                parent_for_field, bd=0, relief='flat',
-                bg=COLORS['bg_tertiary'], fg=COLORS['accent'],
-                font=(FONTS['small'][0], FONTS['small'][1], 'bold'),
-                insertbackground=COLORS['accent']
-            )
+            entry = tk.Entry(parent_for_field, **entry_options(mono=True))
 
         unit = tk.Label(
             parent_for_field,
             text=field.unit,
-            bg=COLORS['bg_secondary'], fg=COLORS['text_secondary'],
-            font=(FONTS['small'][0], 8)
+            bg=field_background, fg=COLORS['text_muted'],
+            font=FONTS['caption']
         )
 
         # Insert default value
@@ -432,7 +429,11 @@ def create_labels(fields, defaults, entries, input_frame,
             if isinstance(entry, ttk.Combobox):
                 # Normalize boolean defaults for the interleave combobox
                 if getattr(field, 'key', '') == 'interleave':
-                    entry.set('True' if bool(value) else 'False')
+                    if isinstance(value, str):
+                        enabled = value.strip().lower() in ('1', 'true', 'yes', 'on')
+                    else:
+                        enabled = bool(value)
+                    entry.set('True' if enabled else 'False')
                 else:
                     entry.set(str(value))
             else:
@@ -447,9 +448,9 @@ def create_labels(fields, defaults, entries, input_frame,
         # Canvas update hook: bind both key events for Entry and selection events for Combobox
         if gui and hasattr(gui, 'canvas_drawer'):
             if isinstance(entry, ttk.Combobox):
-                entry.bind('<<ComboboxSelected>>', lambda e: gui.canvas_drawer._poll())
+                entry.bind('<<ComboboxSelected>>', lambda e: gui.canvas_drawer.request_redraw())
             else:
-                entry.bind('<KeyRelease>', lambda e: gui.canvas_drawer._poll())
+                entry.bind('<KeyRelease>', lambda e: gui.canvas_drawer.request_redraw())
 
         label.grid(row=row, column=0, sticky="WE", pady=4, padx=8)
         entry.grid(row=row, column=1, sticky="WE", padx=4, pady=4)

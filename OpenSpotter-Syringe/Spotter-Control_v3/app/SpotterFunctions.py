@@ -11,10 +11,10 @@ class Container:
     z_filling_height: float
 
 
-def volume_to_mm(volume_ul):
+def volume_to_mm(volume_ul, millimeters_per_microliter):
     """
     Convert volume in microliters (uL) to stepper motor position in millimeters (mm).
-    Conversion: 1 uL = 5 mm
+    The conversion factor is supplied by the active runtime workflow.
     
     Args:
         volume_ul: Volume in microliters
@@ -22,11 +22,14 @@ def volume_to_mm(volume_ul):
     Returns:
         Position in millimeters for stepper motor
     """
-    return volume_ul * 5.0
+    factor = float(millimeters_per_microliter)
+    if factor <= 0:
+        raise ValueError("millimeters_per_microliter must be positive")
+    return float(volume_ul) * factor
 
 
 def read_defaults(file):
-    with open(file, "r") as f:
+    with open(file, "r", encoding="utf-8") as f:
         data = json.load(f)
     if not isinstance(data, dict):
         raise ValueError("Config file must contain a JSON object")
@@ -43,10 +46,10 @@ def save_defaults(file, *section_dicts):
             )
         data.update(section)
 
-    with open(file, "w") as f:
+    with open(file, "w", encoding="utf-8", newline="\n") as f:
         json.dump(data, f, indent=2)
 
-    print(f"✅ Saved defaults to {file}")
+    print(f"Saved defaults to {file}")
 
 
 def write_state(state, config_dir=None):
@@ -61,7 +64,7 @@ def write_state(state, config_dir=None):
     else:
         payload = {"grid_count": state}
 
-    with open(filepath, 'w') as file:
+    with open(filepath, 'w', encoding="utf-8", newline="\n") as file:
         json.dump(payload, file, indent=2)
 
 
@@ -74,12 +77,22 @@ def entries_to_dict(entries, fields):
     for entry, field in zip(entries, fields):
         try:
             raw = entry.get()
-            if field.unit == "int":
-                value = int(raw)  # enforce integer-only input
-            elif field.unit in ("mm", "uL", "s"):
-                value = float(raw)
+            unit = str(field.unit).strip().lower()
+            if unit == "bool" or isinstance(field.default, bool):
+                if isinstance(raw, bool):
+                    value = raw
+                else:
+                    value = str(raw).strip().lower() in ("1", "true", "yes", "on")
+            elif unit == "int" or (
+                isinstance(field.default, int) and not isinstance(field.default, bool)
+            ):
+                value = int(float(raw))  # tolerate a JSON/Tk value such as "2.0"
+            elif unit == "str" or isinstance(field.default, str):
+                value = str(raw)
             else:
-                value = raw
+                # All remaining field-schema values are numeric, including
+                # compound units such as mm/s and descriptive ratio units.
+                value = float(raw)
         except Exception:
             value = field.default
         result[field.key] = value
@@ -89,39 +102,17 @@ def entries_to_dict(entries, fields):
 def create_coordinates(rows, cols,
                        x_offset, grid_x_offset, x_shift,
                        y_offset, grid_y_offset, y_shift):
-    index = 0
-    coordinates_grid = ['0' for _ in range(cols * rows)]
+    coordinates_grid = []
     x_offset_abs = x_offset + grid_x_offset
     x_offset = x_offset_abs
     y_offset = y_offset + grid_y_offset
     for j in range(rows):
         for i in range(cols):
-            coordinates_grid[index] = f'X{x_offset} Y{y_offset}'
+            coordinates_grid.append((x_offset, y_offset))
             x_offset = x_offset + x_shift
-            index = index + 1
         x_offset = x_offset_abs
         y_offset = y_offset + y_shift
     return coordinates_grid
-
-
-def count_range(entry):
-    count = 0
-    while 1:
-        try:
-            count += 1
-            float(entry[count].get())
-        except IndexError:
-            return count
-
-
-def read_entries(entry):
-    count = count_range(entry)
-    return [float(entry[i].get()) for i in range(count)]
-
-
-# NOTE: read_entries_as_dict consolidated into entries_to_dict (above)
-# This alias is kept for backwards compatibility during transition
-read_entries_as_dict = entries_to_dict
 
 
 def build_containers(entry_dict):
@@ -139,67 +130,23 @@ def build_containers(entry_dict):
 
 
 def write_generation_settings_file(gcode_path, settings_snapshot):
-    """Write a human-readable settings snapshot next to a generated G-code file."""
+    """Write a versioned, reproducible JSON profile beside generated output."""
     base, _ = os.path.splitext(gcode_path)
-    settings_path = f"{base}_settings.txt"
-
-    lines = []
-    lines.append("AutoSpan Generation Settings")
-    lines.append("=" * 30)
-    lines.append(f"generated_at={datetime.now().isoformat(timespec='seconds')}")
-    lines.append(f"gcode_path={gcode_path}")
-    lines.append("")
-
-    global_settings = settings_snapshot.get("global_settings", {})
-    lines.append("[global_settings]")
-    for key in sorted(global_settings.keys()):
-        lines.append(f"{key}={global_settings[key]}")
-    lines.append("")
-
-    runtime_values = settings_snapshot.get("runtime_values", {})
-    if runtime_values:
-        lines.append("[runtime_values]")
-        for key in sorted(runtime_values.keys()):
-            lines.append(f"{key}={runtime_values[key]}")
-        lines.append("")
-
-    grid_settings = settings_snapshot.get("grid_settings", [])
-    for grid_data in grid_settings:
-        grid_number = grid_data.get("grid_number", "?")
-        lines.append(f"[grid_{grid_number}]")
-        lines.append(f"grid_name={grid_data.get('grid_name', f'Grid {grid_number}')}")
-        lines.append(f"grid_color={grid_data.get('grid_color', 'green')}")
-
-        for section_name in ("grid", "cleaning", "washing"):
-            section = grid_data.get(section_name, {})
-            if section:
-                lines.append(f"{section_name}:")
-                for key in sorted(section.keys()):
-                    lines.append(f"  {key}={section[key]}")
-
-        lines.append(f"cleaning_enabled={grid_data.get('cleaning_enabled', False)}")
-        lines.append(f"washing_enabled={grid_data.get('washing_enabled', False)}")
-        lines.append(f"wash_after_loading={grid_data.get('wash_after_loading', False)}")
-        lines.append(f"final_rinse_enabled={grid_data.get('final_rinse_enabled', False)}")
-        lines.append(f"final_rinse_add_cleaning_grid={grid_data.get('final_rinse_add_cleaning_grid', False)}")
-        lines.append("")
-
-    spiral_settings = settings_snapshot.get("spiral_settings", [])
-    for spiral_data in spiral_settings:
-        spiral_number = spiral_data.get("spiral_number", "?")
-        lines.append(f"[spiral_{spiral_number}]")
-        lines.append(f"spiral_name={spiral_data.get('spiral_name', f'Spiral {spiral_number}')}" )
-        lines.append(f"spiral_color={spiral_data.get('spiral_color', 'orange')}")
-
-        spiral_section = spiral_data.get("spiral", {})
-        if spiral_section:
-            lines.append("spiral:")
-            for key in sorted(spiral_section.keys()):
-                lines.append(f"  {key}={spiral_section[key]}")
-
-        lines.append("")
-
-    with open(settings_path, "w") as file:
-        file.write("\n".join(lines).rstrip() + "\n")
-
+    settings_path = f"{base}_settings.json"
+    payload = dict(settings_snapshot)
+    payload.setdefault("schema_version", 2)
+    payload["generated_at"] = datetime.now().isoformat(timespec="seconds")
+    payload["gcode_path"] = gcode_path
+    temporary_path = f"{settings_path}.tmp"
+    try:
+        with open(temporary_path, "w", encoding="utf-8", newline="\n") as file:
+            json.dump(payload, file, indent=2)
+            file.write("\n")
+        os.replace(temporary_path, settings_path)
+    except Exception:
+        try:
+            os.unlink(temporary_path)
+        except OSError:
+            pass
+        raise
     return settings_path

@@ -1,0 +1,233 @@
+{
+  "schema_version": 1,
+  "name": "OpenSpotter Syringe Workflow",
+  "description": "Editable event-hook workflow. The numeric planner owns safe lifecycle order; matching sections run in block and section order for each event.",
+  "custom_variables": [
+    {
+      "name": "syringe_mm_per_ul",
+      "label": "Syringe travel per microliter",
+      "type": "number",
+      "unit": "mm/uL",
+      "description": "Plunger travel conversion used by the planner.",
+      "value": 5.0
+    },
+    {
+      "name": "priming_speed_factor",
+      "label": "Priming speed factor",
+      "type": "number",
+      "unit": "ratio",
+      "description": "Multiplier applied to dispensing speed while removing backlash.",
+      "value": 0.5
+    },
+    {
+      "name": "x_homing_clearance_z",
+      "label": "X homing clearance Z",
+      "type": "number",
+      "unit": "mm",
+      "description": "Safe Z height used before homing X.",
+      "value": 35.0
+    },
+    {
+      "name": "spiral_resolution_radians",
+      "label": "Spiral angular resolution",
+      "type": "number",
+      "unit": "rad",
+      "description": "Angular step used by the spiral path planner.",
+      "value": 0.08
+    }
+  ],
+  "blocks": [
+    {
+      "id": "block_start",
+      "name": "Start",
+      "role": "start",
+      "enabled": true,
+      "sections": [
+        {
+          "id": "start_job",
+          "name": "Machine setup and needle calibration",
+          "trigger": "job_start",
+          "template": "\nG90 ;use absolute coordinates\nG21 ;unit mm\nNEEDLE_TIP_OFFSETS_DISABLE ; Homing and mesh use machine/probe coordinates\n\n;Homing sequence\nM117 Gantry Align\nG28 Z0 ;Home Z\nG28 Y0 ;Home Y\nG0 Z{{custom.x_homing_clearance_z}} F{{global.adcent_speed}};Move to X Homing position\nG28 X0 ;Home X\nG0 X{{global.probe_x}} Y{{global.probe_y}} F{{global.movement_speed}} ; Go with Head to probe position\nSET_TMC_FIELD STEPPER=stepper_z FIELD=SGT VALUE=0\nG0 Z{{global.probe_ram_height}} F{{global.probe_feed_rate}} ; Ram into top\nG0 Z{{global.probe_return_height}} F{{global.probe_feed_rate}} ; Back down\nSET_TMC_FIELD STEPPER=stepper_z FIELD=SGT VALUE=4\nG28 Z0; Home Z again\nG28 Z0; Home Z again\nM117 Aligned\nMESH X_MIN={{acceptance.x_left:.3f}} X_MAX={{acceptance.x_right:.3f}} Y_MIN={{acceptance.y_bottom:.3f}} Y_MAX={{acceptance.y_top:.3f}} POINTS={{global.mesh_points}} ;Home Z with mesh bed leveling inside acceptance square\nNEEDLE_TIP_OFFSETS_ENABLE ; Apply saved TCP offsets plus live needle Z trim to normal moves\nG0 X{{global.probe_x}} Y{{global.probe_y}} F{{global.movement_speed}}; Go with probe above vacuum chuck\nHOME_SYRINGE\nDISPENSE MM=0\nG1 Z{{global.calibration_height}} F{{global.calibration_feed_rate}}\nM117 ;Calibrate Needle to touch substrate\nPAUSE\nG0 Z{{global.z_movement_pos_high}} F{{global.adcent_speed}}\n"
+        },
+        {
+          "id": "start_anchor_calibration",
+          "name": "Anchor calibration",
+          "trigger": "anchor_calibration",
+          "template": "; Anchor Calibration Sequence\nG0 X{{runtime.anchor.x}} Y{{runtime.anchor.y}} F{{global.movement_speed}} ; Move to anchor position\nG0 Z{{global.z_movement_pos_low}} F{{global.decent_speed}} ; Lower needle to calibration height\nWAIT S={{global.calibration_wait}} ; Wait at calibration position\nG0 Z{{global.z_movement_pos_high}} F{{global.adcent_speed}} ; Raise needle to safe height\n; Calibration complete\n"
+        }
+      ]
+    },
+    {
+      "id": "block_loading",
+      "name": "Loading",
+      "role": "loading",
+      "enabled": true,
+      "sections": [
+        {
+          "id": "loading_reload_prepare",
+          "name": "Move to reload safe height",
+          "trigger": "syringe_reload",
+          "template": "G0 Z{{global.z_movement_pos_high}} F{{global.adcent_speed}}\n"
+        },
+        {
+          "id": "loading_dynamic_refill_note",
+          "name": "Dynamic refill diagnostics",
+          "trigger": "syringe_reload",
+          "condition": "runtime.refill.dynamic",
+          "template": "; Dynamic refill: {{runtime.refill.target_fill_mm:.3f}} mm ({{runtime.refill.target_fill_ul:.3f}} uL) [spots={{runtime.refill.remaining_spots_mm:.3f}} mm + cleaning={{runtime.refill.cleaning_mm:.3f}} mm + reserve={{runtime.refill.reserve_mm:.3f}} mm = {{runtime.refill.total_needed_mm:.3f}} mm, cap={{runtime.refill.cap_mm:.3f}} mm]\n"
+        },
+        {
+          "id": "loading_reload_motion",
+          "name": "Container aspiration and priming",
+          "trigger": "syringe_reload",
+          "template": "G0 X{{container.x}} Y{{container.y}} F{{global.movement_speed}}\nM117; Open Container\nPAUSE\nG0 Z{{container.z}} F{{global.decent_speed}}\nASPIRATE MM={{runtime.refill.fill_mm}} SPEED={{global.refilling_speed}}; Filling the syringe\nWAIT S={{global.syringe_aspirate_wait}}\nDISPENSE MM={{runtime.refill.priming_mm}} SPEED={{global.dispensing_speed * custom.priming_speed_factor}} RELATIVE=1; Prevent backlash the syringe\nWAIT S={{global.syringe_prime_wait}}\nG0 Z{{global.z_movement_pos_high}} F{{global.adcent_speed}}\n"
+        }
+      ]
+    },
+    {
+      "id": "block_printing",
+      "name": "Printing",
+      "role": "printing",
+      "enabled": true,
+      "sections": [
+        {
+          "id": "printing_grid_start",
+          "name": "Grid header",
+          "trigger": "grid_start",
+          "template": "M117; Main Grid {{grid.name}}\n"
+        },
+        {
+          "id": "printing_grid_spot_move",
+          "name": "Move to grid spot",
+          "trigger": "grid_spot_move",
+          "template": "G0 X{{runtime.spot.x}} Y{{runtime.spot.y}} F{{global.movement_speed}}\nG0 Z{{global.z_movement_pos_low}} F{{global.decent_speed}}\n"
+        },
+        {
+          "id": "printing_grid_row_start",
+          "name": "Stabilize at row start",
+          "trigger": "grid_row_start",
+          "template": "WAIT S={{global.row_start_wait}}\n"
+        },
+        {
+          "id": "printing_grid_spot_dispense",
+          "name": "Dispense and contact grid spot",
+          "trigger": "grid_spot_dispense",
+          "template": "DISPENSE MM={{runtime.spot.dispense_mm}} SPEED={{global.dispensing_speed}} RELATIVE=1\nWAIT S={{grid.droplet_forming_time}}\nG0 Z{{grid.z_contact}} F{{global.decent_speed}} ;position for liquid contact\nG0 Z{{global.z_movement_pos_low}} F{{global.adcent_speed}}\n"
+        },
+        {
+          "id": "printing_spiral_start",
+          "name": "Spiral header",
+          "trigger": "spiral_start",
+          "template": "\n; Spiral sequence\nM117; Spiral {{spiral.spiral_mode}}\n"
+        },
+        {
+          "id": "printing_spiral_drop",
+          "name": "Spiral droplet",
+          "trigger": "spiral_drop",
+          "template": "G0 X{{runtime.spot.x:.3f}} Y{{runtime.spot.y:.3f}} F{{global.movement_speed}}\nG0 Z{{global.z_movement_pos_low}} F{{global.decent_speed}}\nDISPENSE MM={{runtime.spot.dispense_mm:.6f}} SPEED={{global.dispensing_speed}} RELATIVE=1\nWAIT S={{spiral.droplet_forming_time}}\nG0 Z{{spiral.z_contact}} F{{global.decent_speed}} ;position for liquid contact\nG0 Z{{global.z_movement_pos_low}} F{{global.adcent_speed}}\n"
+        },
+        {
+          "id": "printing_spiral_continuous",
+          "name": "Continuous spiral segment",
+          "trigger": "spiral_continuous",
+          "template": "G1 X{{runtime.spot.x:.3f}} Y{{runtime.spot.y:.3f}} F{{global.movement_speed}}\nDISPENSE MM={{runtime.spot.dispense_mm:.6f}} SPEED={{global.dispensing_speed}} RELATIVE=1\nWAIT S={{spiral.droplet_forming_time}}\n"
+        }
+      ]
+    },
+    {
+      "id": "block_cleaning",
+      "name": "Cleaning",
+      "role": "cleaning",
+      "enabled": true,
+      "sections": [
+        {
+          "id": "cleaning_start",
+          "name": "Cleaning header",
+          "trigger": "cleaning_start",
+          "template": "\n\n; Create cleaning sequence\nM117; Auto Cleaning\n"
+        },
+        {
+          "id": "cleaning_spot_move",
+          "name": "Move to cleaning spot",
+          "trigger": "cleaning_spot_move",
+          "template": "G0 X{{runtime.spot.x}} Y{{runtime.spot.y}} F{{global.movement_speed}}\nG0 Z{{global.z_movement_pos_low}} F{{global.decent_speed}}\n"
+        },
+        {
+          "id": "cleaning_row_start",
+          "name": "Stabilize cleaning row",
+          "trigger": "cleaning_row_start",
+          "template": "WAIT S={{global.row_start_wait}}\n"
+        },
+        {
+          "id": "cleaning_spot_dispense",
+          "name": "Dispense cleaning spot",
+          "trigger": "cleaning_spot_dispense",
+          "template": "DISPENSE MM={{runtime.spot.dispense_mm}} SPEED={{global.dispensing_speed}} RELATIVE=1\nWAIT S={{cleaning.droplet_forming_time_cleaning}}\nG0 Z{{grid.z_contact}} F{{global.decent_speed}} ;position for liquid contact\nG0 Z{{global.z_movement_pos_low}} F{{global.adcent_speed}}\n"
+        },
+        {
+          "id": "washing_start",
+          "name": "Begin washing",
+          "trigger": "washing_start",
+          "template": "\n; Washing sequence\nM117; Auto Washing\nG0 Z{{global.z_movement_pos_high}} F{{global.adcent_speed}}\nG0 X{{runtime.washing.x_start}} Y{{washing.washing_y_pos}} F{{global.movement_speed}}\nG0 Z{{washing.washing_depth}} F{{global.decent_speed}}\n"
+        },
+        {
+          "id": "washing_cycle",
+          "name": "Washing stroke",
+          "trigger": "washing_cycle",
+          "template": "G0 X{{runtime.washing.x_end}} F{{washing.washing_speed}}\nG0 X{{runtime.washing.x_start}} F{{washing.washing_speed}}\n"
+        },
+        {
+          "id": "washing_end",
+          "name": "Finish washing",
+          "trigger": "washing_end",
+          "template": "G0 Z{{global.z_movement_pos_high}} F{{global.adcent_speed}}\n"
+        },
+        {
+          "id": "syringe_empty_start",
+          "name": "Empty syringe",
+          "trigger": "syringe_empty_start",
+          "template": "M117; Emptying Syringe\n\nG0 Z{{global.z_movement_pos_high}} F{{global.adcent_speed}} ; dispensing leftovers\nG0 X{{container.x}} Y{{container.y}} F{{global.movement_speed}}\nG0 Z{{container.z}} F{{global.decent_speed}}\nDISPENSE MM={{runtime.rinse.min_mm}} SPEED={{global.dispensing_speed}}\nWAIT S={{global.emptying_wait}}\n"
+        },
+        {
+          "id": "rinse_cycle",
+          "name": "Rinse aspiration and dispense",
+          "trigger": "rinse_cycle",
+          "template": "ASPIRATE MM={{runtime.rinse.max_mm}} SPEED={{global.dispensing_speed}} ; rinse aspiration\nWAIT S={{global.rinse_aspiration_wait}}\nDISPENSE MM={{runtime.rinse.min_mm}} SPEED={{global.dispensing_speed}} ; rinse dispense\n"
+        },
+        {
+          "id": "rinse_midpoint",
+          "name": "Rinse midpoint",
+          "trigger": "rinse_midpoint",
+          "template": "WAIT S={{global.rinse_final_wait}}\n\nG0 Z{{global.z_movement_pos_high}} F{{global.adcent_speed}} ; dispensing leftovers\n"
+        },
+        {
+          "id": "syringe_empty_final_rinse_wait",
+          "name": "Final rinse wait",
+          "trigger": "syringe_empty_end",
+          "condition": "runtime.rinse.cycle > 0",
+          "template": "WAIT S={{global.rinse_final_wait}}\n"
+        },
+        {
+          "id": "syringe_empty_end",
+          "name": "Raise after emptying",
+          "trigger": "syringe_empty_end",
+          "template": "G0 Z{{global.z_movement_pos_high}} F{{global.adcent_speed}}\n"
+        }
+      ]
+    },
+    {
+      "id": "block_end",
+      "name": "End",
+      "role": "end",
+      "enabled": true,
+      "sections": [
+        {
+          "id": "end_present_plate",
+          "name": "Present build plate",
+          "trigger": "job_end",
+          "template": "G90 ;absolute positioning\nG0 Y{{global.present_plate_y}} F{{global.present_plate_speed}};present print\nNEEDLE_TIP_OFFSETS_DISABLE ; Return later manual moves to machine coordinates\n"
+        }
+      ]
+    }
+  ]
+}

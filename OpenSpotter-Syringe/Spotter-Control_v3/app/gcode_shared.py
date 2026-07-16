@@ -7,11 +7,13 @@ Provides:
 - Common data collection for both grid and spiral generators
 """
 import os
+import tempfile
+from contextlib import contextmanager
 from tkinter import filedialog
 
-from .SpotterFunctions import build_containers, read_entries_as_dict
+from .SpotterFunctions import build_containers, entries_to_dict
 from .input_configs import GLOBAL_FIELDS
-from .paths import GCODE_DIR
+from .paths import GCODE_DIR, WORKFLOW_CONFIG
 
 
 def prompt_save_base_path(default_filename: str):
@@ -40,11 +42,37 @@ def derive_output_path(base_path: str, suffix: str) -> str:
     return f"{root}_{suffix}{ext}"
 
 
+@contextmanager
+def atomic_text_output(filepath: str):
+    """Write a text output beside its destination and replace it on success."""
+    destination = os.path.abspath(filepath)
+    directory = os.path.dirname(destination)
+    os.makedirs(directory, exist_ok=True)
+    descriptor, temporary_path = tempfile.mkstemp(
+        prefix=f".{os.path.basename(destination)}.",
+        suffix=".tmp",
+        dir=directory,
+        text=True,
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
+            yield handle
+        os.replace(temporary_path, destination)
+    except Exception:
+        try:
+            os.unlink(temporary_path)
+        except OSError:
+            pass
+        raise
+
+
 def compute_acceptance_square(entry_dict):
     """
     Convert acceptance square size + base origin into printer coordinates.
     
-    Keeps canvas orientation (bottom-left is minimum X/Y).
+    Returns coordinate minima/maxima. In the positive-down Y convention,
+    minimum Y is the visual top edge even though the legacy keys remain
+    y_bottom/y_top for workflow compatibility.
     Returns dict with keys: x_left, x_right, y_bottom, y_top
     """
     base_x = float(entry_dict['base_square_x'])
@@ -86,7 +114,7 @@ def collect_common_generation_data(self):
     - timing: row_start_wait, calibration_wait, emptying_wait, rinse_aspiration_wait, rinse_final_wait, syringe_aspirate_wait, syringe_prime_wait
     - plate: present_plate_y, present_plate_speed
     """
-    entry_dict = read_entries_as_dict(self.entry, GLOBAL_FIELDS)
+    entry_dict = entries_to_dict(self.entry, GLOBAL_FIELDS)
     x_abs = float(entry_dict['x_cord_of_y_line'])
     y_abs = float(entry_dict['y_cord_of_x_line'])
     x_offset = x_abs + float(entry_dict['tuning_offset_x'])
@@ -96,6 +124,10 @@ def collect_common_generation_data(self):
     return {
         # Raw config
         'entry_dict': entry_dict,
+        'workflow_path': os.path.join(
+            getattr(self, 'config_dir', str(WORKFLOW_CONFIG.parent)),
+            WORKFLOW_CONFIG.name,
+        ),
         # Spatial coords
         'x_abs': x_abs,
         'y_abs': y_abs,
@@ -140,4 +172,17 @@ def collect_common_generation_data(self):
         'present_plate_y': float(entry_dict['present_plate_y']),
         'present_plate_speed': float(entry_dict['present_plate_speed']),
     }
+
+
+def build_workflow_engine(common):
+    """Create the renderer with a fresh snapshot of all shared runtime values."""
+    from .gcode_workflow import WorkflowEngine, build_runtime_context_defaults
+
+    base_context = build_runtime_context_defaults()
+    base_context["global"] = dict(common["entry_dict"])
+    base_context["acceptance"] = dict(common["acceptance_square"])
+    return WorkflowEngine(
+        common.get("workflow_path", WORKFLOW_CONFIG),
+        base_context=base_context,
+    )
 

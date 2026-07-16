@@ -1,137 +1,130 @@
 # Spotter-Control_v3 Developer Guide
 
-This guide is an extra map for the next developer. It does not replace `README.md`, the repository root docs, or the files in `config/` and `hardware/`.
+This guide maps the current implementation and its contracts. User behavior is documented in [README.md](README.md); firmware commissioning is documented in [hardware/klipper/README.md](hardware/klipper/README.md).
 
-## Quick Orientation
+## Bootstrap and UI
 
-- The active app is a Python/Tkinter desktop GUI.
-- `main.py` is the simple launcher. It imports `app.main_v3.main()`.
-- `app/main_v3.py` bootstraps runtime folders, loads global defaults, restores grid/spiral state, and starts the Tkinter main loop.
-- `app/gui_v3.py` is the main window: workspace mode, global inputs, grid/spiral tab management, build plate controls, load/save actions, and validation popups.
-- `app/input_configs.py` is the shared field schema for global, grid, cleaning, washing, and spiral settings.
-- `app/canvas_drawer.py` renders the preview canvas for anchors, containers, grids, cleaning points, washing lines, and spirals.
-- `app/grid.py` and `app/spiral_grid.py` build the per-pattern configuration panels.
-- `app/create_gcode.py` is the GUI-facing wrapper for G-code creation.
-- `app/grid_gcode.py`, `app/spiral_gcode.py`, `app/gcode_shared.py`, and `app/spotter_gcode.py` contain G-code generation logic.
-- `app/plugins/` contains pattern generator plugins. The current plugin is `spiral`.
-- `config/` stores JSON defaults and UI state.
-- `assets/images/` stores images loaded by the GUI.
-- `output/gcodes/` stores generated or example G-code.
-- `hardware/` stores Klipper and syringe configuration files.
-- `logs/` is the runtime log folder.
+- `main.py` calls `app.main_v3.main()`.
+- `app/main_v3.py` creates runtime directories, loads global defaults, restores pattern counts, and starts Tk.
+- `app/gui_v3.py` owns the main window, workspace mode, tabs, controls, defaults, profile loading, and action error handling.
+- `app/grid.py` and `app/spiral_grid.py` build recipe panels.
+- `app/input_configs.py` defines `GLOBAL_FIELDS`, `GRID_FIELDS`, `CLEANING_FIELDS`, `WASHING_FIELDS`, and `SPIRAL_FIELDS`.
+- `app/paths.py` is the only central definition of config, asset, output, and log paths.
 
-## Where To Edit Common Things
+The visual system belongs to `app/ui_theme.py`. Add or change shared palette tokens, fonts, ttk styles, buttons, and entry options there. Use semantic tokens in feature modules; do not introduce another local palette.
 
-Global machine settings:
+Useful UI search targets in `gui_v3.py`:
 
-- Field definitions, labels, defaults, and tabs: `GLOBAL_FIELDS` in `app/input_configs.py`.
-- Loading global defaults at startup: `main()` in `app/main_v3.py`.
-- Global save behavior: `check_saves()` in `app/gui_v3.py`.
-- Global lock/unlock behavior: `_toggle_global_lock()` and `_update_global_fields_state()` in `app/gui_v3.py`.
-- Persistent values: `config/config_global.json`.
+- `create_buttons`
+- `_switch_workspace_mode`
+- `instance_grid` and `instance_spiral`
+- `check_saves`
+- `_parse_generation_json_file` and `load_generation_config`
+- `open_gcode_editor`
+- `adding_pictures`
 
-Grid configuration:
+## Preview and visual objects
 
-- Grid field definitions: `GRID_FIELDS` in `app/input_configs.py`.
-- Cleaning field definitions: `CLEANING_FIELDS` in `app/input_configs.py`.
-- Washing field definitions: `WASHING_FIELDS` in `app/input_configs.py`.
-- Grid panel UI: `Grid.create_grid()` in `app/grid.py`.
-- Shared label/input construction: `create_labels()` in `app/grid.py`.
-- Adding/removing grid tabs: `instance_grid()` and related tab methods in `app/gui_v3.py`.
-- Grid defaults: `config/config_grid_*.json`.
+- `app/canvas_drawer.py` snapshots GUI values, plans preview geometry, draws TCP axes and patterns, and handles polling, zoom, pan, fit, and acceptance warnings.
+- `app/visual_objects.py` validates schema-version 2 rectangles/circles/images and their optional geometry bindings, migrates surviving schema-version 1 legacy containers, resolves portable image paths, owns the fresh-install default layout, and persists objects atomically.
+- `app/visual_object_editor.py` owns interactive annotation editing plus guarded reverse writes to linked program inputs.
+- `config/config_visual_objects.json` is deliberately separate from generation profiles.
 
-Spiral configuration:
+Coordinate invariants:
 
-- Spiral field definitions: `SPIRAL_FIELDS` in `app/input_configs.py`.
-- Spiral panel UI: `SpiralGrid.create_spiral()` in `app/spiral_grid.py`.
-- Spiral tab creation/removal: `instance_spiral()` and related tab methods in `app/gui_v3.py`.
-- Spiral G-code output: `save_spiral_gcode()` in `app/spiral_gcode.py`.
-- Spiral path math: `app/plugins/spiral.py`.
-- Spiral defaults: `config/config_spiral_1.json`.
+- TCP crossing is preview X0/Y0.
+- Preview and machine coordinates use positive X right and positive Y down.
+- Static layout geometry, including the build plate, acceptance area, containers, and CAPTRON placeholder, is stored in the editable object list rather than a second hardcoded overlay path.
+- The default CAPTRON image spans -30..30 mm on both axes and uses the project-relative `assets/Captron-TCP.png` source.
+- Rectangles and images anchor at top-left and extend in positive X/Y; circles anchor at centre.
+- Image width/height are converted directly from millimetres to canvas pixels, so independent values intentionally stretch the source to the requested box.
+- The image cache is keyed by object ID, resolved path, file metadata, and rendered size. Keep the cached `PhotoImage` alive and invalidate it when the file or target size changes.
+- Project-contained images persist relative to the project directory; external image selections persist as absolute paths.
+- Both rectangle and circle fills are opaque; do not reintroduce Tk stipple masks for editable surfaces.
+- Optional `bindings` map `x`, `y`, `width`, or `height` to a stable numeric program path. Global paths use `global.<field>`; per-pattern paths use an explicit index such as `grid.1.<field>` or `spiral.1.<field>`.
+- Binding resolution happens in the canvas snapshot before fitting and drawing. The program value is authoritative; a missing, invalid, or non-positive size source leaves the stored literal as a fallback and records a warning.
+- Reverse writes go through `DropletGui._set_visual_binding_variable` and must honor the source widget's current lock/read-only state. Do not use `_set_entry_value` to bypass the global machine-parameter lock for interactive binding edits.
+- Unlinked visual geometry remains annotation-only. Linked geometry also never enters planner calculations directly; only an intentional reverse write to the real program field can affect generation.
+- Coordinate axes, the TCP marker, and generated grid/spiral/cleaning/washing previews remain renderer primitives and are not editor objects.
 
-Canvas preview:
+## Generation flow
 
-- Polling and refresh loop: `CanvasDrawer.start()`, `_poll()`, and `refresh()` in `app/canvas_drawer.py`.
-- Reading GUI values for preview: `_collect_data()` in `app/canvas_drawer.py`.
-- Build plate, anchors, containers, grids, cleaning preview, washing line, and spiral drawing: `draw()` in `app/canvas_drawer.py`.
-- Zoom and pan behavior: `_on_mousewheel()`, `_apply_zoom()`, `_on_pan_start()`, and `_on_pan_move()` in `app/canvas_drawer.py`.
-- Acceptance warning popup: `_show_exceed_popup()` in `app/canvas_drawer.py`.
+```text
+GUI fields
+  -> gcode_generation.save_file
+  -> grid_gcode / spiral_gcode
+  -> gcode_planner numeric events
+  -> gcode_workflow template rendering
+  -> atomic G-code + schema-version 2 JSON sidecar
+```
 
-G-code generation:
+Key ownership:
 
-- Save button entrypoint: `DropletGui.save_file()` in `app/gui_v3.py`.
-- GUI-facing wrapper: `save_file()` in `app/create_gcode.py`.
-- Output path dialog and suffix handling: `prompt_save_base_path()` and `derive_output_path()` in `app/gcode_shared.py`.
-- Common global/runtime values: `collect_common_generation_data()` in `app/gcode_shared.py`.
-- Anchor calibration G-code: `generate_anchor_calibration()` in `app/grid_gcode.py`.
-- Grid G-code: `save_grid_gcode()` in `app/grid_gcode.py`.
-- Spiral G-code: `save_spiral_gcode()` in `app/spiral_gcode.py`.
-- Low-level motion, syringe, cleaning, washing, and presentation helpers: `app/spotter_gcode.py`.
-- Settings snapshots next to generated G-code: `write_generation_settings_file()` in `app/SpotterFunctions.py`.
+- `app/gcode_generation.py`: GUI-facing save orchestration and per-type suffixes.
+- `app/gcode_shared.py`: common values, acceptance square, output paths, atomic text output, workflow-engine construction.
+- `app/gcode_planner.py`: lifecycle ordering, refill calculations, syringe state, and numeric event payloads.
+- `app/grid_gcode.py`: grid job collection and orchestration.
+- `app/spiral_gcode.py`: spiral job collection and orchestration.
+- `app/plugins/spiral.py`: numeric spiral points only.
+- `app/SpotterFunctions.py`: field conversion, containers, and atomic JSON profile sidecars.
 
-Runtime paths and folders:
+Saving a base path with both recipe types creates separate `_grid.gcode` and `_spiral.gcode` files. Each sidecar contains only the recipes for its job type plus global/runtime values and the effective workflow.
 
-- Central folder definitions: `app/paths.py`.
-- Runtime folder creation: `ensure_runtime_dirs()` in `app/paths.py`.
-- Config path passed into the GUI: `main()` in `app/main_v3.py`.
-- Image loading paths: `adding_pictures()` in `app/gui_v3.py`.
-- Output dialog starting folder: `prompt_save_base_path()` in `app/gcode_shared.py`.
+The loader accepts JSON only. It requires `global_settings`, `grid_settings`, and `spiral_settings`, rebuilds tabs, and writes an embedded validated workflow to the active workflow file. Preserve that side effect or introduce an explicit migration if the contract changes.
 
-Hardware and machine configuration:
+## Workflow architecture
 
-- Klipper config examples: `hardware/klipper/config/`.
-- Syringe config: `hardware/syring.cfg`.
-- Before changing generated motion, check the matching Klipper limits and physical travel assumptions.
+- `app/gcode_workflow.py`: schema, safe expression evaluator, template rendering, scope validation, custom-variable dependency resolution, atomic persistence, and runtime engine.
+- `app/gcode_editor.py`: block/section editing, variable catalog, condition/expression tools, validation, preview, and save.
+- `config/config_gcode_workflow.json`: only application-owned source of emitted machine-command templates.
 
-## File Sections To Search First
+Workflow blocks do not form a second planner. `gcode_planner.py` emits named events in lifecycle order; matching enabled sections render in block order and then section order. Add physical state transitions to the planner, add or extend a named event, and keep machine command text in the workflow.
 
-`app/gui_v3.py` is the largest file. Good first search targets:
+Variable metadata distinguishes event availability from job kind. Event-scoped values may only be used where supplied. Mode-specific values on shared events need a `runtime.job.kind` condition. The editor uses representative GUI values for preview; generation supplies planned runtime values.
 
-- `create_buttons`: main control buttons.
-- `instance_grid`: add grid tab.
-- `instance_spiral`: add spiral tab.
-- `_switch_workspace_mode`: grid/spiral UI switching.
-- `check_saves`: save current defaults.
-- `load_generation_config`: load a generated settings snapshot.
-- `check_inputs`: acceptance-area validation.
-- `adding_pictures`: build plate and spot images.
+`custom.syringe_mm_per_ul` and `custom.spiral_resolution_radians` are required positive planner inputs. Other default custom variables currently include priming speed and X-homing clearance.
 
-`app/spotter_gcode.py` is the low-level generation file. Good first search targets:
+## Configuration and defaults
 
-- `start_gcode`: initial homing/probing sequence.
-- `generate_grid`: main spot generation loop.
-- `loading_syringe`: aspirate/refill sequence.
-- `emptying_syringe`: empty/rinse sequence.
-- `auto_cleaning_grid`: cleaning grid generation.
-- `auto_washing`: washing motion.
-- `present_build_plate`: final presentation motion.
+- `config/config_global.json`: global defaults.
+- `config/config_grid_*.json`: indexed grid defaults.
+- `config/config_spiral_1.json`: spiral defaults.
+- `config/config_states.json`: restored tab counts.
+- `config/config_gcode_workflow.json`: workflow schema version 1.
+- `config/config_visual_objects.json`: visual-object and binding schema version 2.
 
-## Tests To Run
+Keep field keys aligned between `input_configs.py`, JSON defaults, profile parsing, planner context, and workflow variable metadata.
 
-Run the compile smoke check after changing Python code:
+## Hardware files
+
+`hardware/klipper/config/printer.cfg` includes:
+
+- `hardware.cfg`
+- `tmc2130.cfg`
+- `syringe.cfg`
+- `bltouch.cfg`
+- `movement_safety.cfg`
+- `bed_mesh.cfg`
+- `display.cfg`
+- `mainsail.cfg`
+- `tcp_calibration.cfg`
+
+The custom Klipper source of truth is `hardware/klipper/config/scripts/tcp_calibration.py`. It is deployed into the printer's `klippy/extras` directory; no Klipper source checkout is maintained here. `moonraker.conf` is a separate service config and is not included by `printer.cfg`.
+
+When changing generated motion, review axis/syringe limits, the G0/G1 wrappers, raw G0.1/G1.1 uses, mesh assumptions, detachable-probe state, TCP readiness, and the effective workflow together.
+
+## Tests
+
+From this directory:
 
 ```powershell
 python -m compileall -q app
-```
-
-Run an import smoke check after changing imports, packaging, paths, or dependencies:
-
-```powershell
 python -c "import app.main_v3; import app.gui_v3; import app.gcode_shared; import app.plugins; print('imports ok')"
+python -m unittest discover -s tests -v
 ```
 
-Run the app after visible UI, config, path, image, or G-code workflow changes:
+Run `python main.py` for visible or interactive changes. Hardware config tests are static checks, not hardware-in-the-loop validation.
 
-```powershell
-python main.py
-```
+## Repository hygiene
 
-There is no formal automated test suite yet. Add focused tests before large generation-logic changes.
-
-## Cleanup Notes From 2026-06-18
-
-- The old flat `Spotter-Control_v3` layout was reorganized into `app/`, `config/`, `assets/`, `hardware/`, `output/`, and `logs/`.
-- Python imports were converted to package-relative imports under `app/`.
-- `app/paths.py` now owns runtime folder locations.
-- `main.py` was added as the stable launcher from the `Spotter-Control_v3` root.
-- `requirements.txt` was added with `Pillow` as the GUI image dependency.
+Keep one generation architecture, JSON-only profiles, current static images, and the project-owned Klipper configuration/custom extra. Do not add parallel retired implementations, generated output, UI captures used only as stale documentation, or a firmware source checkout.

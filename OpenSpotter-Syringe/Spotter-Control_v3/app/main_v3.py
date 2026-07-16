@@ -13,7 +13,7 @@ def main():
 
     # Load global defaults and create global inputs first.
     config_path = CONFIG_DIR / "config_global.json"
-    with open(config_path, "r") as f:
+    with open(config_path, "r", encoding="utf-8") as f:
         global_defaults = json.load(f)
 
     create_labels(GLOBAL_FIELDS, global_defaults, Gui.entry, Gui.global_input_frame)
@@ -21,12 +21,8 @@ def main():
     
     # Read grid state from JSON and create grids accordingly
     states_data = read_defaults(CONFIG_DIR / "config_states.json")
-    if isinstance(states_data, dict):
-        grid_count = states_data.get("grid_count", 0)
-        spiral_count = states_data.get("spiral_count", 0)
-    else:
-        grid_count = int(states_data[0]) if states_data else 0
-        spiral_count = 0
+    grid_count = states_data.get("grid_count", 0)
+    spiral_count = states_data.get("spiral_count", 0)
 
     grid_count = max(0, min(int(grid_count), max_grid_count))
     
