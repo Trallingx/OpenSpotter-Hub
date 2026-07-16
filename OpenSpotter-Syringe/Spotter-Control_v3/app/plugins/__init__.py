@@ -34,6 +34,11 @@ import pkgutil
 import os
 from typing import Dict, Optional
 
+from ..runtime_logging import get_logger, log_options
+
+
+logger = get_logger("plugins")
+
 _PLUGINS: Dict[str, object] = {}
 
 
@@ -46,16 +51,22 @@ def discover_plugins():
         try:
             mod = importlib.import_module(f"{__name__}.{name}")
         except Exception as exc:
-            print(f"Warning: failed to load plugin '{name}': {exc}")
+            logger.exception("plugin.load_failed | plugin=%s", name)
             continue
         if hasattr(mod, 'register'):
             try:
                 plugin = mod.register()
                 plugin_name = getattr(plugin, 'name', None) or getattr(mod, 'name', None) or name
                 _PLUGINS[plugin_name] = plugin
-                print(f"Loaded plugin: {plugin_name}")
+                log_options(
+                    logger,
+                    "plugin.loaded",
+                    module=name,
+                    plugin_name=plugin_name,
+                    implementation=type(plugin).__name__,
+                )
             except Exception as exc:
-                print(f"Warning: failed to register plugin '{name}': {exc}")
+                logger.exception("plugin.registration_failed | plugin=%s", name)
                 continue
 
 

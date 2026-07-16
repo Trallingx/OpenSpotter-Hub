@@ -1476,8 +1476,6 @@ class GCodeWorkflowEditor(tk.Toplevel):
 
         if trigger.startswith("spiral_"):
             job_kind = "spiral"
-        elif trigger == "anchor_calibration":
-            job_kind = "anchor"
         elif (
             trigger.startswith("grid_")
             or trigger.startswith("cleaning_")
@@ -1511,9 +1509,6 @@ class GCodeWorkflowEditor(tk.Toplevel):
 
         anchor_x = number("global.x_cord_of_y_line") + number("global.tuning_offset_x")
         anchor_y = number("global.y_cord_of_x_line") + number("global.tuning_offset_y")
-        if trigger == "anchor_calibration":
-            put("runtime.anchor.x", number("global.x_cord_of_y_line"))
-            put("runtime.anchor.y", number("global.y_cord_of_x_line"))
 
         if trigger in grid_spot_events:
             volume_ul = number("grid.dispense_vol")

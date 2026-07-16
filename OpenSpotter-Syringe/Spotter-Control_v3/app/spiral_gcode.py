@@ -17,6 +17,10 @@ from .gcode_shared import (
 )
 from .input_configs import SPIRAL_FIELDS
 from .plugins import discover_plugins, get_plugin
+from .runtime_logging import get_logger, log_options
+
+
+logger = get_logger("generation.spiral")
 
 
 def _collect_spiral_job(spiral_number, spiral_obj):
@@ -42,6 +46,20 @@ def save_spiral_gcode(self, filepath=None):
         _collect_spiral_job(spiral_number, spiral_obj)
         for spiral_number, spiral_obj in sorted(self.spiral_tab_dict.items())
     ]
+    log_options(
+        logger,
+        "spiral_generation.started",
+        output_path=filepath,
+        spiral_count=len(spiral_jobs),
+        global_options=common["entry_dict"],
+        spiral_jobs=[
+            {
+                "spiral_number": spiral_number,
+                "spiral": spiral_values,
+            }
+            for spiral_number, spiral_values in spiral_jobs
+        ],
+    )
     engine.update_context({
         "spiral": dict(spiral_jobs[0][1]),
         "runtime": {
@@ -98,6 +116,16 @@ def save_spiral_gcode(self, filepath=None):
                 "resolution_radians": float(engine.custom_value("spiral_resolution_radians")),
                 "millimeters_per_microliter": float(engine.custom_value("syringe_mm_per_ul")),
             })
+            log_options(
+                logger,
+                "spiral_generation.recipe_options",
+                spiral_number=spiral_number,
+                loading_container_id=loading_container_id,
+                leftovers_container_id=emptying_container_id,
+                point_count=len(points),
+                plugin=getattr(plugin, "name", type(plugin).__name__),
+                spiral=spiral_values,
+            )
             generate_spiral_events(
                 file=file,
                 engine=engine,
@@ -123,5 +151,11 @@ def save_spiral_gcode(self, filepath=None):
         finish_program(file, engine)
 
     settings_path = write_generation_settings_file(filepath, settings_snapshot)
-    print(f"Saved generation settings to {settings_path}")
+    log_options(
+        logger,
+        "spiral_generation.completed",
+        output_path=filepath,
+        settings_path=settings_path,
+        spiral_count=len(spiral_jobs),
+    )
     return filepath

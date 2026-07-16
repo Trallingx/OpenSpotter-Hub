@@ -71,7 +71,6 @@ GLOBAL_FIELDS: List[Field] = [
     Field("present_plate_y", "Present Plate Y Position", "mm", default=170.0, tab="Utility"),
     Field("present_plate_speed", "Present Plate Speed", "mm/s", default=2000.0, tab="Utility"),
     Field("row_start_wait", "Row Start Wait", "s", default=0.2, tab="Utility"),
-    Field("calibration_wait", "Calibration Wait", "s", default=1.0, tab="Utility"),
     Field("emptying_wait", "Emptying Wait", "s", default=1.0, tab="Utility"),
     Field("rinse_aspiration_wait", "Rinse Aspiration Wait", "s", default=0.5, tab="Utility"),
     Field("rinse_final_wait", "Rinse Final Wait", "s", default=2.0, tab="Utility"),

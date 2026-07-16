@@ -39,6 +39,7 @@ For a visual smoke test, confirm that:
 - the canvas shows the editable 60 × 60 mm CAPTRON image centred at TCP X0/Y0;
 - scroll zoom, drag pan, and **FIT VIEW** work;
 - **VISUAL OBJECTS** edits persisted rectangles, circles, and imported images; unlinked geometry remains display-only;
+- the Visual Objects list is front-to-back, so a higher row appears above a lower row and Move Up/Move Down changes that stack;
 - each legacy container circle follows its matching `global.containerN_x/y` values, and reverse editing is blocked until global machine parameters are unlocked;
 - **IMPORT IMAGE…** starts in the asset folder, accepts other filesystem paths, and scales the selected image to its entered millimetre width/height;
 - **EDIT G-CODE WORKFLOW** validates, previews, and saves workflow changes.

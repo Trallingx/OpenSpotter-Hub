@@ -4,8 +4,12 @@ import tkinter as tk
 import tkinter.ttk as ttk
 
 from .input_configs import SPIRAL_FIELDS
+from .runtime_logging import get_logger, log_options
 from .ui_theme import COLORS, FONTS, entry_options
 from .grid import create_labels
+
+
+logger = get_logger("gui.spiral")
 
 
 class SpiralGrid(object):
@@ -81,6 +85,13 @@ class SpiralGrid(object):
         config_path = os.path.join(self.config_dir, config)
         with open(config_path, 'r', encoding="utf-8") as f:
             defaults = json.load(f)
+        log_options(
+            logger,
+            "spiral.options_loaded",
+            spiral_number=self.spiral_number,
+            config_path=config_path,
+            options=defaults,
+        )
 
         default_name = defaults.get('spiral_name', f'Spiral {self.spiral_number}' if self.spiral_number is not None else 'Spiral')
         self.spiral_name_var.set(str(default_name))

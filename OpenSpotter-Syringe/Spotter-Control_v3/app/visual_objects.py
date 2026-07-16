@@ -261,6 +261,46 @@ def default_visual_objects() -> List[Dict[str, Any]]:
     )["objects"]
 
 
+def visual_objects_top_first(
+    objects: Iterable[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Return painter-ordered objects as a front-to-back layer list."""
+    return list(reversed(list(objects)))
+
+
+def move_visual_object_layer(
+    objects: Iterable[Dict[str, Any]],
+    selected_index: int | None,
+    direction: str,
+):
+    """Move one stored object toward the front (up) or back (down)."""
+    ordered = list(objects)
+    normalized_direction = str(direction).strip().lower()
+    if normalized_direction not in ("up", "down"):
+        raise VisualObjectValidationError(
+            "Layer direction must be 'up' or 'down'"
+        )
+    if selected_index is None:
+        return ordered, None, False
+    if not isinstance(selected_index, int) or isinstance(selected_index, bool):
+        raise VisualObjectValidationError(
+            "Selected visual-object index must be a whole number"
+        )
+    if not 0 <= selected_index < len(ordered):
+        raise VisualObjectValidationError(
+            "Selected visual-object index is out of range"
+        )
+
+    target_index = selected_index + (1 if normalized_direction == "up" else -1)
+    if not 0 <= target_index < len(ordered):
+        return ordered, selected_index, False
+    ordered[selected_index], ordered[target_index] = (
+        ordered[target_index],
+        ordered[selected_index],
+    )
+    return ordered, target_index, True
+
+
 def resolve_visual_image_path(
     image_path: os.PathLike[str] | str,
     *,

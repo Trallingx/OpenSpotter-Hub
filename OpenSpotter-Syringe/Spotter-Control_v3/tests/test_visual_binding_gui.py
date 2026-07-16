@@ -234,6 +234,51 @@ class VisualBindingGuiTests(unittest.TestCase):
         ):
             VisualObjectEditor._prepare_binding_updates(owner, conflicting)
 
+    def test_layer_move_publishes_top_first_mapping_and_rolls_back_on_failure(self):
+        published = []
+        owner = SimpleNamespace(
+            objects=[{"id": "back"}, {"id": "middle"}, {"id": "front"}],
+            selected_index=1,
+            _publish=lambda selected_index, reload_form: published.append(
+                (selected_index, reload_form)
+            ),
+            _update_layer_buttons=lambda: None,
+            _refresh_list=lambda *_args, **_kwargs: None,
+        )
+
+        self.assertEqual(
+            VisualObjectEditor._display_index_from_storage_index(owner, 2),
+            0,
+        )
+        self.assertEqual(
+            VisualObjectEditor._storage_index_from_display_index(owner, 0),
+            2,
+        )
+
+        VisualObjectEditor._move_layer(owner, "up")
+
+        self.assertEqual(
+            [item["id"] for item in owner.objects],
+            ["back", "front", "middle"],
+        )
+        self.assertEqual(owner.selected_index, 2)
+        self.assertEqual(published, [(2, False)])
+
+        original = list(owner.objects)
+        owner.selected_index = 1
+
+        def fail_publish(_selected_index, reload_form):
+            self.assertFalse(reload_form)
+            raise RuntimeError("save failed")
+
+        owner._publish = fail_publish
+        with patch("app.visual_object_editor.messagebox.showerror") as show_error:
+            VisualObjectEditor._move_layer(owner, "down")
+
+        self.assertEqual(owner.objects, original)
+        self.assertEqual(owner.selected_index, 1)
+        show_error.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

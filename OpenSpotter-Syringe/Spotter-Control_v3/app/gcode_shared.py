@@ -14,6 +14,10 @@ from tkinter import filedialog
 from .SpotterFunctions import build_containers, entries_to_dict
 from .input_configs import GLOBAL_FIELDS
 from .paths import GCODE_DIR, WORKFLOW_CONFIG
+from .runtime_logging import get_logger, log_options
+
+
+logger = get_logger("generation.shared")
 
 
 def prompt_save_base_path(default_filename: str):
@@ -21,13 +25,20 @@ def prompt_save_base_path(default_filename: str):
     Prompt user to select a base filename and location for G-code output.
     Returns the full filepath, or None if cancelled.
     """
-    return filedialog.asksaveasfilename(
+    selected_path = filedialog.asksaveasfilename(
         defaultextension=".gcode",
         initialfile=default_filename,
         initialdir=str(GCODE_DIR),
         filetypes=[("G-code files", "*.gcode"), ("All files", "*.*")],
         confirmoverwrite=False,
     )
+    log_options(
+        logger,
+        "output_path.selected" if selected_path else "output_path.cancelled",
+        default_filename=default_filename,
+        selected_path=selected_path or None,
+    )
+    return selected_path
 
 
 def derive_output_path(base_path: str, suffix: str) -> str:
@@ -63,7 +74,13 @@ def atomic_text_output(filepath: str):
             os.unlink(temporary_path)
         except OSError:
             pass
+        logger.exception(
+            "output.atomic_write_failed | destination=%s | temporary_path=%s",
+            destination,
+            temporary_path,
+        )
         raise
+    log_options(logger, "output.atomic_write_completed", destination=destination)
 
 
 def compute_acceptance_square(entry_dict):
@@ -111,7 +128,7 @@ def collect_common_generation_data(self):
     - syringe: max_syringe_vol, drop_extra_aspirate, max_syringe_mm, min_syringe_mm, priming_vol
     - z_heights: z_movement_pos_low, z_movement_pos_high
     - probe_params: probe_ram_height, probe_return_height, calibration_height, probe_feed_rate, calibration_feed_rate
-    - timing: row_start_wait, calibration_wait, emptying_wait, rinse_aspiration_wait, rinse_final_wait, syringe_aspirate_wait, syringe_prime_wait
+    - timing: row_start_wait, emptying_wait, rinse_aspiration_wait, rinse_final_wait, syringe_aspirate_wait, syringe_prime_wait
     - plate: present_plate_y, present_plate_speed
     """
     entry_dict = entries_to_dict(self.entry, GLOBAL_FIELDS)
@@ -121,7 +138,7 @@ def collect_common_generation_data(self):
     y_offset = y_abs + float(entry_dict['tuning_offset_y'])
     containers = build_containers(entry_dict)
 
-    return {
+    common = {
         # Raw config
         'entry_dict': entry_dict,
         'workflow_path': os.path.join(
@@ -162,7 +179,6 @@ def collect_common_generation_data(self):
         'calibration_feed_rate': float(entry_dict['calibration_feed_rate']),
         # Timing parameters (all defaults from input_configs.py GLOBAL_FIELDS)
         'row_start_wait': float(entry_dict['row_start_wait']),
-        'calibration_wait': float(entry_dict['calibration_wait']),
         'emptying_wait': float(entry_dict['emptying_wait']),
         'rinse_aspiration_wait': float(entry_dict['rinse_aspiration_wait']),
         'rinse_final_wait': float(entry_dict['rinse_final_wait']),
@@ -172,6 +188,23 @@ def collect_common_generation_data(self):
         'present_plate_y': float(entry_dict['present_plate_y']),
         'present_plate_speed': float(entry_dict['present_plate_speed']),
     }
+    log_options(
+        logger,
+        "generation.common_options_collected",
+        global_options=entry_dict,
+        workflow_path=common["workflow_path"],
+        spatial={
+            "x_abs": common["x_abs"],
+            "y_abs": common["y_abs"],
+            "x_offset": common["x_offset"],
+            "y_offset": common["y_offset"],
+        },
+        acceptance_square=common["acceptance_square"],
+        mesh_points=common["mesh_points"],
+        containers=common["containers"],
+        probe={"x": common["probe_x"], "y": common["probe_y"]},
+    )
+    return common
 
 
 def build_workflow_engine(common):
@@ -181,8 +214,16 @@ def build_workflow_engine(common):
     base_context = build_runtime_context_defaults()
     base_context["global"] = dict(common["entry_dict"])
     base_context["acceptance"] = dict(common["acceptance_square"])
-    return WorkflowEngine(
+    engine = WorkflowEngine(
         common.get("workflow_path", WORKFLOW_CONFIG),
         base_context=base_context,
     )
+    log_options(
+        logger,
+        "workflow.engine_created",
+        workflow_path=common.get("workflow_path", WORKFLOW_CONFIG),
+        workflow=engine.workflow,
+        resolved_custom_options=engine.custom_values,
+    )
+    return engine
 

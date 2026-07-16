@@ -38,6 +38,32 @@
       "bindings": {}
     },
     {
+      "id": "visual-a7640e5455104d98848a5562cbac54cb",
+      "type": "image",
+      "x": -30.0,
+      "y": 46.0,
+      "width": 60.0,
+      "height": 110.0,
+      "color": "#9aa7b2",
+      "text": "LoadingBay",
+      "text_size": 10,
+      "bindings": {},
+      "image_path": "assets/LoadingBay.png"
+    },
+    {
+      "id": "captron-tcp",
+      "type": "image",
+      "x": -30.0,
+      "y": -30.0,
+      "width": 60.0,
+      "height": 60.0,
+      "color": "#1c252a",
+      "text": "CAPTRON TCP",
+      "text_size": 8,
+      "bindings": {},
+      "image_path": "assets/Captron-TCP.png"
+    },
+    {
       "id": "legacy-container-2",
       "type": "circle",
       "x": 16.0,
@@ -111,32 +137,6 @@
         "x": "global.container6_x",
         "y": "global.container6_y"
       }
-    },
-    {
-      "id": "captron-tcp",
-      "type": "image",
-      "x": -30.0,
-      "y": -30.0,
-      "width": 60.0,
-      "height": 60.0,
-      "color": "#1c252a",
-      "text": "CAPTRON TCP",
-      "text_size": 8,
-      "bindings": {},
-      "image_path": "assets/Captron-TCP.png"
-    },
-    {
-      "id": "visual-a7640e5455104d98848a5562cbac54cb",
-      "type": "image",
-      "x": -30.0,
-      "y": 46.0,
-      "width": 60.0,
-      "height": 110.0,
-      "color": "#9aa7b2",
-      "text": "LoadingBay",
-      "text_size": 10,
-      "bindings": {},
-      "image_path": "assets/LoadingBay.png"
     },
     {
       "id": "visual-a1a87f6b18184f17b90c8e4f1b3cde9f",

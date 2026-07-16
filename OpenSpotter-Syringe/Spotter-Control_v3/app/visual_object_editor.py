@@ -18,10 +18,12 @@ from .visual_objects import (
     VISUAL_BINDABLE_PROPERTIES,
     VISUAL_OBJECT_TYPES,
     VisualObjectValidationError,
+    move_visual_object_layer,
     normalize_visual_object,
     normalize_visual_object_config,
     resolve_visual_image_path,
     serialize_visual_image_path,
+    visual_objects_top_first,
 )
 
 
@@ -94,7 +96,7 @@ class VisualObjectEditor(tk.Toplevel):
         self._refresh_list()
         if self.objects:
             self.listbox.selection_set(0)
-            self._select_index(0)
+            self._select_index(len(self.objects) - 1)
 
     def _build_ui(self):
         header = tk.Frame(self, bg=COLORS["bg_secondary"])
@@ -112,7 +114,8 @@ class VisualObjectEditor(tk.Toplevel):
                 "Unlinked properties are display only. Linked geometry follows a "
                 "program input; changing it here writes back only when that input "
                 "is editable. Use SAVE DEFAULTS to persist changed program inputs. "
-                "All positions are millimetres from TCP (0,0)."
+                "Higher list rows draw above lower rows. All positions are "
+                "millimetres from TCP (0,0)."
             ),
             font=FONTS["small"],
             fg=COLORS["text_secondary"],
@@ -143,8 +146,44 @@ class VisualObjectEditor(tk.Toplevel):
             relief="flat",
             bd=0,
         )
-        self.listbox.grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
+        self.listbox.grid(
+            row=0,
+            column=0,
+            sticky="nsew",
+            padx=8,
+            pady=(8, 4),
+        )
         self.listbox.bind("<<ListboxSelect>>", self._on_selection)
+
+        layer_controls = tk.Frame(list_frame, bg=COLORS["bg_secondary"])
+        layer_controls.grid(
+            row=1,
+            column=0,
+            sticky="ew",
+            padx=8,
+            pady=(0, 8),
+        )
+        tk.Label(
+            layer_controls,
+            text="TOP ROW = FRONT",
+            font=FONTS["caption"],
+            fg=COLORS["text_muted"],
+            bg=COLORS["bg_secondary"],
+        ).pack(side="left")
+        self.move_down_button = self._button(
+            layer_controls,
+            "MOVE DOWN",
+            self._move_down,
+            "secondary",
+        )
+        self.move_down_button.pack(side="right", padx=(4, 0))
+        self.move_up_button = self._button(
+            layer_controls,
+            "MOVE UP",
+            self._move_up,
+            "secondary",
+        )
+        self.move_up_button.pack(side="right", padx=(4, 0))
 
         form = tk.Frame(body, bg=COLORS["bg_secondary"])
         form.grid(row=0, column=1, sticky="nsew", padx=(4, 0))
@@ -611,9 +650,15 @@ class VisualObjectEditor(tk.Toplevel):
         if chosen:
             self.color_var.set(chosen)
 
-    def _refresh_list(self, selected_index=None):
+    def _display_index_from_storage_index(self, storage_index):
+        return len(self.objects) - 1 - storage_index
+
+    def _storage_index_from_display_index(self, display_index):
+        return len(self.objects) - 1 - display_index
+
+    def _refresh_list(self, selected_index=None, *, reload_form=True):
         self.listbox.delete(0, tk.END)
-        for item in self.objects:
+        for item in visual_objects_top_first(self.objects):
             name = item.get("text", "").strip() or "Untitled object"
             object_type = item.get("type", "rectangle").capitalize()
             link_note = "  ·  Linked" if item.get("bindings") else ""
@@ -622,14 +667,25 @@ class VisualObjectEditor(tk.Toplevel):
                 f"{name}  ·  {object_type}{link_note}",
             )
         if selected_index is not None and 0 <= selected_index < len(self.objects):
-            self.listbox.selection_set(selected_index)
-            self.listbox.see(selected_index)
-            self._select_index(selected_index)
+            display_index = self._display_index_from_storage_index(
+                selected_index
+            )
+            self.listbox.selection_set(display_index)
+            self.listbox.see(display_index)
+            if reload_form:
+                self._select_index(selected_index)
+            else:
+                self.selected_index = selected_index
+                self._update_layer_buttons()
+        else:
+            self._update_layer_buttons()
 
     def _on_selection(self, _event=None):
         selection = self.listbox.curselection()
         if selection:
-            self._select_index(selection[0])
+            self._select_index(
+                self._storage_index_from_display_index(selection[0])
+            )
 
     def _select_index(self, index):
         self.selected_index = index
@@ -688,6 +744,26 @@ class VisualObjectEditor(tk.Toplevel):
             self.binding_status_var.set(
                 "No geometry links. X, Y, width, and height are visual-only values."
             )
+        self._update_layer_buttons()
+
+    def _update_layer_buttons(self):
+        selected_index = self.selected_index
+        has_selection = (
+            selected_index is not None
+            and 0 <= selected_index < len(self.objects)
+        )
+        up_state = (
+            "normal"
+            if has_selection and selected_index < len(self.objects) - 1
+            else "disabled"
+        )
+        down_state = (
+            "normal"
+            if has_selection and selected_index > 0
+            else "disabled"
+        )
+        self.move_up_button.configure(state=up_state)
+        self.move_down_button.configure(state=down_state)
 
     def _draft(self, object_id):
         object_type = self.type_var.get()
@@ -863,14 +939,47 @@ class VisualObjectEditor(tk.Toplevel):
             except Exception:
                 pass
 
-    def _publish(self, selected_index=None):
+    def _publish(self, selected_index=None, *, reload_form=True):
         normalized = normalize_visual_object_config({"objects": self.objects})
         self.on_change(normalized["objects"])
         self.objects = [dict(item) for item in normalized["objects"]]
         try:
-            self._refresh_list(selected_index)
+            self._refresh_list(
+                selected_index,
+                reload_form=reload_form,
+            )
         except Exception:
             traceback.print_exc()
+
+    def _move_layer(self, direction):
+        previous_objects = self.objects
+        previous_index = self.selected_index
+        try:
+            reordered, selected_index, moved = move_visual_object_layer(
+                self.objects,
+                self.selected_index,
+                direction,
+            )
+            if not moved:
+                self._update_layer_buttons()
+                return
+            self.objects = reordered
+            self.selected_index = selected_index
+            self._publish(selected_index, reload_form=False)
+        except Exception as exc:
+            self.objects = previous_objects
+            self.selected_index = previous_index
+            try:
+                self._refresh_list(previous_index, reload_form=False)
+            except Exception:
+                traceback.print_exc()
+            messagebox.showerror("Visual object layers", str(exc), parent=self)
+
+    def _move_up(self):
+        self._move_layer("up")
+
+    def _move_down(self):
+        self._move_layer("down")
 
     def _add_new(self):
         new_object = {

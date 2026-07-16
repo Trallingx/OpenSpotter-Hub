@@ -2,9 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
 
-from app.grid_gcode import generate_anchor_calibration
 from app.grid_gcode import save_grid_gcode
 from app.input_configs import (
     CLEANING_FIELDS,
@@ -135,24 +133,6 @@ class FakeGui:
 
 
 class GenerationIntegrationTests(unittest.TestCase):
-    def test_anchor_calibration_runs_start_anchor_and_end_workflow(self):
-        gui = FakeGui()
-        with tempfile.TemporaryDirectory() as temp_dir:
-            output_path = Path(temp_dir) / "anchor.gcode"
-            with mock.patch(
-                "app.grid_gcode.prompt_save_base_path",
-                return_value=str(output_path),
-            ):
-                self.assertEqual(
-                    generate_anchor_calibration(gui),
-                    str(output_path),
-                )
-
-            output = output_path.read_text(encoding="utf-8")
-            self.assertIn("Anchor Calibration Sequence", output)
-            self.assertIn("present print", output)
-            self.assertTrue(output.rstrip().endswith("machine coordinates"))
-
     def test_grid_and_spiral_generation_render_the_active_workflow(self):
         gui = FakeGui()
         gui.grid_tab_dict = {1: FakeGrid()}

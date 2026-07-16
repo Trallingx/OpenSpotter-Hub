@@ -11,7 +11,6 @@ from .gcode_planner import (
     generate_grid_events,
     load_syringe,
     start_program,
-    write_anchor_calibration,
 )
 from .gcode_shared import (
     atomic_text_output,
@@ -20,20 +19,10 @@ from .gcode_shared import (
     prompt_save_base_path,
 )
 from .input_configs import CLEANING_FIELDS, GRID_FIELDS, WASHING_FIELDS
+from .runtime_logging import get_logger, log_options
 
 
-def generate_anchor_calibration(self):
-    filepath = prompt_save_base_path("global_calibration.gcode")
-    if not filepath:
-        return None
-    common = collect_common_generation_data(self)
-    engine = build_workflow_engine(common)
-    engine.update_context({"runtime": {"job": {"kind": "anchor", "pattern_index": 0}}})
-    with atomic_text_output(filepath) as file:
-        start_program(file, engine)
-        write_anchor_calibration(file, engine, common)
-        finish_program(file, engine)
-    return filepath
+logger = get_logger("generation.grid")
 
 
 def _grid_snapshot(grid_number, grid_values, cleaning_values, washing_values, flags):
@@ -80,6 +69,23 @@ def save_grid_gcode(self, filepath=None):
         _collect_grid_job(grid_number, grid_obj)
         for grid_number, grid_obj in sorted(self.grid_tab_dict.items())
     ]
+    log_options(
+        logger,
+        "grid_generation.started",
+        output_path=filepath,
+        grid_count=len(grid_jobs),
+        global_options=common["entry_dict"],
+        grid_jobs=[
+            _grid_snapshot(
+                grid_number,
+                grid_values,
+                cleaning_values,
+                washing_values,
+                flags,
+            )
+            for grid_number, grid_values, cleaning_values, washing_values, flags in grid_jobs
+        ],
+    )
     first_grid = grid_jobs[0]
     engine.update_context({
         "grid": dict(first_grid[1]),
@@ -137,6 +143,18 @@ def save_grid_gcode(self, filepath=None):
                 grid_values,
                 cleaning_values,
                 flags,
+            )
+            log_options(
+                logger,
+                "grid_generation.recipe_options",
+                grid_number=grid_number,
+                loading_container_id=loading_container_id,
+                leftovers_container_id=emptying_container_id,
+                calculated_refill_ul=refill_ul,
+                flags=flags,
+                grid=grid_values,
+                cleaning=cleaning_values,
+                washing=washing_values,
             )
             cleaning_cycle_counter = [0]
 
@@ -205,5 +223,11 @@ def save_grid_gcode(self, filepath=None):
         finish_program(file, engine)
 
     settings_path = write_generation_settings_file(filepath, settings_snapshot)
-    print(f"Saved generation settings to {settings_path}")
+    log_options(
+        logger,
+        "grid_generation.completed",
+        output_path=filepath,
+        settings_path=settings_path,
+        grid_count=len(grid_jobs),
+    )
     return filepath

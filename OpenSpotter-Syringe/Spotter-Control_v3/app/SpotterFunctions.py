@@ -3,6 +3,11 @@ import os
 from dataclasses import dataclass
 from datetime import datetime
 
+from .runtime_logging import get_logger, log_options
+
+
+logger = get_logger("configuration")
+
 
 @dataclass
 class Container:
@@ -33,6 +38,7 @@ def read_defaults(file):
         data = json.load(f)
     if not isinstance(data, dict):
         raise ValueError("Config file must contain a JSON object")
+    log_options(logger, "configuration.loaded", path=file, options=data)
     return data
 
 
@@ -49,7 +55,7 @@ def save_defaults(file, *section_dicts):
     with open(file, "w", encoding="utf-8", newline="\n") as f:
         json.dump(data, f, indent=2)
 
-    print(f"Saved defaults to {file}")
+    log_options(logger, "configuration.saved", path=file, options=data)
 
 
 def write_state(state, config_dir=None):
@@ -66,6 +72,7 @@ def write_state(state, config_dir=None):
 
     with open(filepath, 'w', encoding="utf-8", newline="\n") as file:
         json.dump(payload, file, indent=2)
+    log_options(logger, "pattern_state.saved", path=filepath, options=payload)
 
 
 def entries_to_dict(entries, fields):
@@ -75,6 +82,7 @@ def entries_to_dict(entries, fields):
     """
     result = {}
     for entry, field in zip(entries, fields):
+        raw = "<unavailable>"
         try:
             raw = entry.get()
             unit = str(field.unit).strip().lower()
@@ -93,8 +101,16 @@ def entries_to_dict(entries, fields):
                 # All remaining field-schema values are numeric, including
                 # compound units such as mm/s and descriptive ratio units.
                 value = float(raw)
-        except Exception:
+        except Exception as exc:
             value = field.default
+            log_options(
+                logger,
+                "configuration.invalid_value_defaulted",
+                field=field.key,
+                raw_value=raw,
+                default=value,
+                error=str(exc),
+            )
         result[field.key] = value
     return result
 
@@ -148,5 +164,17 @@ def write_generation_settings_file(gcode_path, settings_snapshot):
             os.unlink(temporary_path)
         except OSError:
             pass
+        logger.exception(
+            "generation.settings_write_failed | gcode_path=%s | settings_path=%s",
+            gcode_path,
+            settings_path,
+        )
         raise
+    log_options(
+        logger,
+        "generation.settings_written",
+        gcode_path=gcode_path,
+        settings_path=settings_path,
+        settings=payload,
+    )
     return settings_path

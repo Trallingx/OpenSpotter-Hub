@@ -22,22 +22,6 @@ def start_program(file, engine) -> None:
     emit_event(file, engine, "job_start")
 
 
-def write_anchor_calibration(file, engine, common: Mapping[str, Any]) -> None:
-    emit_event(
-        file,
-        engine,
-        "anchor_calibration",
-        {
-            "runtime": {
-                "anchor": {
-                    "x": common["x_abs"],
-                    "y": common["y_abs"],
-                }
-            }
-        },
-    )
-
-
 def finish_program(file, engine) -> None:
     emit_event(file, engine, "job_end")
 

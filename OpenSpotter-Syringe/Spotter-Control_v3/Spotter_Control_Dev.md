@@ -10,6 +10,9 @@ This guide maps the current implementation and its contracts. User behavior is d
 - `app/grid.py` and `app/spiral_grid.py` build recipe panels.
 - `app/input_configs.py` defines `GLOBAL_FIELDS`, `GRID_FIELDS`, `CLEANING_FIELDS`, `WASHING_FIELDS`, and `SPIRAL_FIELDS`.
 - `app/paths.py` is the only central definition of config, asset, output, and log paths.
+- `app/runtime_logging.py` configures the rotating runtime log, redacts credential-like values, and serializes effective option snapshots.
+
+The application log is `logs/openspotter-control.log`, rotated at 5 MB with five backups. Important state changes and complete effective generation options are logged at `INFO`; per-trigger workflow rendering decisions are logged at `DEBUG`. `OPENSPOTTER_LOG_LEVEL` controls the level without changing source.
 
 The visual system belongs to `app/ui_theme.py`. Add or change shared palette tokens, fonts, ttk styles, buttons, and entry options there. Use semantic tokens in feature modules; do not introduce another local palette.
 
@@ -44,6 +47,7 @@ Coordinate invariants:
 - Optional `bindings` map `x`, `y`, `width`, or `height` to a stable numeric program path. Global paths use `global.<field>`; per-pattern paths use an explicit index such as `grid.1.<field>` or `spiral.1.<field>`.
 - Binding resolution happens in the canvas snapshot before fitting and drawing. The program value is authoritative; a missing, invalid, or non-positive size source leaves the stored literal as a fallback and records a warning.
 - Reverse writes go through `DropletGui._set_visual_binding_variable` and must honor the source widget's current lock/read-only state. Do not use `_set_entry_value` to bypass the global machine-parameter lock for interactive binding edits.
+- Persisted object order remains painter order from back to front. The editor deliberately presents `reversed(objects)`, so its first row is the top visual layer; Move Up swaps the stored object with the next index and Move Down swaps it with the previous index.
 - Unlinked visual geometry remains annotation-only. Linked geometry also never enters planner calculations directly; only an intentional reverse write to the real program field can affect generation.
 - Coordinate axes, the TCP marker, and generated grid/spiral/cleaning/washing previews remain renderer primitives and are not editor objects.
 
@@ -81,6 +85,8 @@ The loader accepts JSON only. It requires `global_settings`, `grid_settings`, an
 Workflow blocks do not form a second planner. `gcode_planner.py` emits named events in lifecycle order; matching enabled sections render in block order and then section order. Add physical state transitions to the planner, add or extend a named event, and keep machine command text in the workflow.
 
 Variable metadata distinguishes event availability from job kind. Event-scoped values may only be used where supplied. Mode-specific values on shared events need a `runtime.job.kind` condition. The editor uses representative GUI values for preview; generation supplies planned runtime values.
+
+The application planner supports grid and spiral jobs only; no separate calibration-generation event or runtime namespace is exposed.
 
 `custom.syringe_mm_per_ul` and `custom.spiral_resolution_radians` are required positive planner inputs. Other default custom variables currently include priming speed and X-homing clearance.
 

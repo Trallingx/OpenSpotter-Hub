@@ -12,6 +12,7 @@ from app.visual_objects import (
     VisualObjectStore,
     VisualObjectValidationError,
     default_visual_objects,
+    move_visual_object_layer,
     normalize_visual_object,
     normalize_visual_object_config,
     resolve_visual_image_path,
@@ -19,6 +20,7 @@ from app.visual_objects import (
     serialize_visual_image_path,
     visual_object_bounds,
     visual_object_center,
+    visual_objects_top_first,
 )
 
 
@@ -407,6 +409,72 @@ class VisualObjectTests(unittest.TestCase):
 
             self.assertEqual(store.load(), saved)
             self.assertEqual(json.loads(path.read_text(encoding="utf-8")), saved)
+
+    def test_layer_helpers_present_top_first_and_move_adjacent_objects(self):
+        objects = [
+            {
+                "id": "back",
+                "bindings": {"x": "global.container1_x"},
+            },
+            {
+                "id": "middle",
+                "image_path": "assets/example.png",
+            },
+            {
+                "id": "front",
+                "x": 99,
+            },
+        ]
+
+        self.assertEqual(
+            [item["id"] for item in visual_objects_top_first(objects)],
+            ["front", "middle", "back"],
+        )
+
+        moved, selected_index, changed = move_visual_object_layer(
+            objects,
+            1,
+            "up",
+        )
+        self.assertTrue(changed)
+        self.assertEqual(selected_index, 2)
+        self.assertEqual(
+            [item["id"] for item in moved],
+            ["back", "front", "middle"],
+        )
+        self.assertEqual(moved[2]["image_path"], "assets/example.png")
+        self.assertEqual(
+            moved[0]["bindings"],
+            {"x": "global.container1_x"},
+        )
+        self.assertEqual(
+            [item["id"] for item in objects],
+            ["back", "middle", "front"],
+        )
+
+        restored, selected_index, changed = move_visual_object_layer(
+            moved,
+            selected_index,
+            "down",
+        )
+        self.assertTrue(changed)
+        self.assertEqual(selected_index, 1)
+        self.assertEqual(
+            [item["id"] for item in restored],
+            ["back", "middle", "front"],
+        )
+
+        unchanged, selected_index, changed = move_visual_object_layer(
+            objects,
+            2,
+            "up",
+        )
+        self.assertFalse(changed)
+        self.assertEqual(selected_index, 2)
+        self.assertEqual(unchanged, objects)
+
+        with self.assertRaises(VisualObjectValidationError):
+            move_visual_object_layer(objects, 1, "sideways")
 
     def test_image_paths_are_relative_inside_project_and_absolute_outside(self):
         with tempfile.TemporaryDirectory() as temporary_directory:

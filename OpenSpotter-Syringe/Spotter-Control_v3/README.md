@@ -33,6 +33,17 @@ python -m unittest discover -s tests -v
 
 Launch the GUI after changes to appearance, interaction, paths, images, or workflow editing.
 
+## Runtime logs
+
+Each application run writes to `logs/openspotter-control.log`. The file records startup state, effective global and recipe options, workflow/profile changes, generation choices, output paths, fallback defaults, and failures. Logs rotate at 5 MB with five backups, and credential-like values are redacted.
+
+The default level is `INFO`. Set `OPENSPOTTER_LOG_LEVEL=DEBUG` before launching to include detailed workflow-trigger decisions:
+
+```powershell
+$env:OPENSPOTTER_LOG_LEVEL = "DEBUG"
+python main.py
+```
+
 ## Interface
 
 The interface uses a low-saturation graphite scientific palette, restrained steel-blue accents, semantic status colors, Segoe UI text, and Consolas for machine-oriented text. All shared colors, fonts, classic Tk options, and ttk styles live in `app/ui_theme.py`.
@@ -87,6 +98,8 @@ The Python planner retains numeric state and the physical lifecycle: start, refi
 
 Variables are namespaced by global, grid, cleaning, washing, spiral, container, runtime, or custom scope. Grid-only and spiral-only values on shared events should be guarded with a condition such as `runtime.job.kind == 'grid'`. `custom.syringe_mm_per_ul` and `custom.spiral_resolution_radians` are required planner inputs and must remain positive.
 
+Application generation and workflow events cover grid and spiral jobs only. Startup needle calibration and hardware TCP calibration remain separate safety workflows.
+
 ## TCP coordinate preview
 
 The CAPTRON beam crossing is visual X0/Y0. Positive X is right and positive Y is down, matching the configured machine motion from the TCP toward the work area. Scroll zooms, dragging pans, and **FIT VIEW** restores the useful extent.
@@ -102,7 +115,8 @@ The CAPTRON beam crossing is visual X0/Y0. Positive X is right and positive Y is
 - project-contained images are stored with portable relative paths, while external files use absolute paths;
 - text size, descriptive text, and color are editable; image color controls its centred description text;
 - rectangle and circle fills are solid;
-- X, Y, width, and height can each be linked to a numeric program input by using the dropdown beside the value.
+- X, Y, width, and height can each be linked to a numeric program input by using the dropdown beside the value;
+- the object list is a layer stack: higher rows draw above lower rows, and **MOVE UP** / **MOVE DOWN** persist adjacent layer changes immediately.
 
 The program input is authoritative while a property is linked. Changing that input moves or resizes every linked object on the next canvas refresh. Changing a linked value in **VISUAL OBJECTS** and selecting **APPLY CHANGES** writes the value back to the program input, so every other object using the same link follows it. Locked global machine parameters cannot be changed through the visual editor; unlock them through the normal safety control first. Visual links are saved immediately, while changed program values use the existing **SAVE DEFAULTS** action for persistence.
 

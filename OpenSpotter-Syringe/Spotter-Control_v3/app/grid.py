@@ -4,7 +4,11 @@ import tkinter as tk
 import tkinter.ttk as ttk
 
 from .input_configs import GRID_FIELDS, CLEANING_FIELDS, WASHING_FIELDS
+from .runtime_logging import get_logger, log_options
 from .ui_theme import COLORS, FONTS, entry_options
+
+
+logger = get_logger("gui.grid")
 
 
 class Grid(object):
@@ -53,6 +57,12 @@ class Grid(object):
     def _toggle_cleaning_inputs(self):
         """Show/hide cleaning input widgets based on checkbox state."""
         is_enabled = self.cleaning_enabled.get()
+        log_options(
+            logger,
+            "grid.cleaning_option_changed",
+            grid_number=getattr(self, "grid_number", None),
+            enabled=bool(is_enabled),
+        )
         # Hide/show all cleaning input widgets except the checkbox itself
         for widget in self.cleaning_widgets[1:]:  # Skip the checkbox
             if is_enabled:
@@ -69,6 +79,13 @@ class Grid(object):
     def _toggle_washing_inputs(self):
         """Show/hide washing input widgets based on checkbox state."""
         is_enabled = self.washing_enabled.get()
+        log_options(
+            logger,
+            "grid.washing_option_changed",
+            grid_number=getattr(self, "grid_number", None),
+            enabled=bool(is_enabled),
+            wash_after_loading=bool(self.wash_after_loading_enabled.get()),
+        )
         # Hide/show all washing input widgets except the checkbox itself
         for widget in self.washing_widgets[1:]:  # Skip the checkbox
             if is_enabled:
@@ -92,6 +109,13 @@ class Grid(object):
     def _toggle_final_rinse_inputs(self):
         """Show/hide final rinse widgets based on checkbox state."""
         is_enabled = self.final_rinse_enabled.get()
+        log_options(
+            logger,
+            "grid.final_rinse_option_changed",
+            grid_number=getattr(self, "grid_number", None),
+            enabled=bool(is_enabled),
+            add_cleaning_grid=bool(self.final_rinse_add_cleaning_grid.get()),
+        )
         # Hide/show all final rinse widgets except the checkbox itself
         for widget in self.final_rinse_widgets[1:]:  # Skip the checkbox
             if is_enabled:
@@ -161,6 +185,13 @@ class Grid(object):
         config_path = os.path.join(self.config_dir, config)
         with open(config_path, "r", encoding="utf-8") as f:
             grid_defaults = json.load(f)
+        log_options(
+            logger,
+            "grid.options_loaded",
+            grid_number=self.grid_number,
+            config_path=config_path,
+            options=grid_defaults,
+        )
 
         def _to_bool(value, default=False):
             if isinstance(value, bool):

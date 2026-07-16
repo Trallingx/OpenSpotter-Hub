@@ -15,15 +15,20 @@ from .ui_theme import COLORS, FONTS, button_options, configure_ttk_styles, entry
 from .grid import Grid
 from .spiral_grid import SpiralGrid
 from .gcode_generation import save_file
-from .grid_gcode import generate_anchor_calibration
 from .canvas_drawer import CanvasDrawer
 from .paths import GCODE_DIR, IMAGE_DIR, VISUAL_OBJECT_CONFIG, WORKFLOW_CONFIG
+from .runtime_logging import get_logger, log_options
 from .visual_objects import VisualObjectStore
+
+
+logger = get_logger("gui")
+
 
 class DropletGui(tk.Tk):
     def __init__(self, config_dir):
         super(DropletGui, self).__init__()
         self.config_dir = config_dir
+        self._last_logged_workspace_mode = None
         self.visual_object_store = VisualObjectStore(
             os.path.join(self.config_dir, VISUAL_OBJECT_CONFIG.name)
         )
@@ -34,6 +39,18 @@ class DropletGui(tk.Tk):
             self.visual_objects = self.visual_object_store.load()["objects"]
         except Exception as exc:
             self._visual_object_load_error = str(exc)
+            logger.exception(
+                "visual_objects.load_failed | path=%s",
+                self.visual_object_store.path,
+            )
+        else:
+            log_options(
+                logger,
+                "visual_objects.loaded",
+                path=self.visual_object_store.path,
+                object_count=len(self.visual_objects),
+                objects=self.visual_objects,
+            )
         self.global_input_frame = None
         self.canvas_frame = None
         self.canvas = None
@@ -70,7 +87,13 @@ class DropletGui(tk.Tk):
         try:
             self.state('zoomed')
         except Exception:
-            pass
+            logger.debug("window.maximize_not_supported", exc_info=True)
+        log_options(
+            logger,
+            "gui.initialized",
+            config_dir=self.config_dir,
+            visual_object_count=len(self.visual_objects),
+        )
 
     def _init_styles(self):
         style = Style(self)
@@ -380,35 +403,6 @@ class DropletGui(tk.Tk):
         global_scrollbar.grid(row=0, column=1, sticky='ns')
 
 
-        # ---- Anchor calibration checkbox and button ----
-        self.calibration_frame = tk.Frame(self.global_frame, bg=COLORS['bg_tertiary'], relief='flat', bd=0, highlightthickness=0)
-        self.calibration_frame.grid(row=2, column=0, sticky='ew', padx=8, pady=8)
-        self.calibration_frame.columnconfigure(0, weight=0)
-        self.calibration_frame.columnconfigure(1, weight=1)
-
-        self.anchor_calibration_enabled = tk.BooleanVar(value=False)
-        calibration_checkbox = tk.Checkbutton(
-            self.calibration_frame,
-            text="Anchor Calibration",
-            variable=self.anchor_calibration_enabled,
-            command=self._toggle_calibration_button,
-            bg=COLORS['bg_tertiary'], fg=COLORS['text_primary'], selectcolor=COLORS['bg_secondary'], font=FONTS['normal'],
-            activebackground=COLORS['bg_tertiary'], activeforeground=COLORS['text_primary']
-        )
-        calibration_checkbox.grid(row=0, column=0, padx=0, pady=0, sticky="W")
-
-        self.calibration_button = tk.Button(
-            self.calibration_frame,
-            text="GENERATE CALIBRATION",
-            command=lambda: self._run_action(self.generate_anchor_calibration, "Anchor Calibration"),
-            **button_options('primary'),
-            state='disabled'
-        )
-        self.calibration_button.grid(row=0, column=1, padx=8, pady=0, sticky="E")
-        
-        # Initially hide the button
-        self._toggle_calibration_button()
-
         # ---- Pictures frame (below global config) ----
         self.pictures_frame = tk.Frame(self.right_frame, bg=COLORS['bg_secondary'], relief='flat', bd=0, highlightbackground=COLORS['border'], highlightthickness=1)
         self.pictures_frame.grid(row=1, column=0, sticky='nsew', pady=(5, 0), padx=0)
@@ -430,7 +424,7 @@ class DropletGui(tk.Tk):
             self.canvas_drawer = CanvasDrawer(self)
             self.canvas_drawer.start()
         except Exception:
-            pass
+            logger.exception("canvas.initialization_failed")
 
     def create_buttons(self):
         btn_frame = tk.Frame(self.button_frame, bg=COLORS['bg_secondary'])
@@ -474,6 +468,7 @@ class DropletGui(tk.Tk):
         from .gcode_editor import open_workflow_editor
 
         workflow_path = os.path.join(self.config_dir, WORKFLOW_CONFIG.name)
+        log_options(logger, "workflow.editor_opened", workflow_path=workflow_path)
         return open_workflow_editor(
             self,
             workflow_path,
@@ -485,6 +480,11 @@ class DropletGui(tk.Tk):
         """Open the machine-layout editor and its optional program links."""
         from .visual_object_editor import open_visual_object_editor
 
+        log_options(
+            logger,
+            "visual_objects.editor_opened",
+            object_count=len(self.visual_objects),
+        )
         return open_visual_object_editor(
             self,
             self.visual_objects,
@@ -497,11 +497,19 @@ class DropletGui(tk.Tk):
         """Persist a validated visual layout and refit the canvas immediately."""
         saved = self.visual_object_store.save(objects)
         self.visual_objects = saved["objects"]
+        log_options(
+            logger,
+            "visual_objects.saved",
+            path=getattr(self.visual_object_store, "path", None),
+            object_count=len(self.visual_objects),
+            objects=self.visual_objects,
+        )
         canvas_drawer = getattr(self, 'canvas_drawer', None)
         if canvas_drawer is not None:
             try:
                 canvas_drawer.reset_view()
             except Exception:
+                logger.exception("canvas.reset_after_visual_save_failed")
                 traceback.print_exc()
 
     def fit_canvas_to_content(self):
@@ -512,6 +520,12 @@ class DropletGui(tk.Tk):
 
     def _workflow_saved(self, _workflow=None):
         """Refresh previews whose geometry depends on workflow variables."""
+        log_options(
+            logger,
+            "workflow.saved",
+            workflow_path=os.path.join(self.config_dir, WORKFLOW_CONFIG.name),
+            workflow=_workflow,
+        )
         canvas_drawer = getattr(self, 'canvas_drawer', None)
         if canvas_drawer is None:
             return
@@ -843,11 +857,19 @@ class DropletGui(tk.Tk):
             canonical_value = numeric_value
 
         self._set_entry_value(widget, canonical_value, target["field"])
+        log_options(
+            logger,
+            "visual_binding.program_value_changed",
+            variable=name,
+            value=canonical_value,
+            source=target.get("source"),
+        )
         canvas_drawer = getattr(self, "canvas_drawer", None)
         if canvas_drawer is not None:
             try:
                 canvas_drawer.request_redraw()
             except Exception:
+                logger.exception("canvas.redraw_after_binding_change_failed")
                 traceback.print_exc()
         return canonical_value
 
@@ -883,6 +905,15 @@ class DropletGui(tk.Tk):
             self.left_label.config(text='GRID PARAMETERS')
             self.add_object_button.config(text='ADD GRID')
             self.remove_object_button.config(text='REMOVE GRID')
+        if mode != self._last_logged_workspace_mode:
+            log_options(
+                logger,
+                "workspace.mode_changed",
+                mode=mode,
+                grid_count=self.grid_count,
+                spiral_count=self.spiral_count,
+            )
+            self._last_logged_workspace_mode = mode
 
     def show_help(self):
         message = (
@@ -908,13 +939,26 @@ class DropletGui(tk.Tk):
 
     def _run_action(self, action, action_name="Action"):
         """Unified action runner for UI callbacks with consistent error popups."""
+        log_options(logger, "ui.action_started", action=action_name)
         try:
-            return action()
+            result = action()
+            log_options(
+                logger,
+                "ui.action_finished",
+                action=action_name,
+                result=result,
+            )
+            return result
         except ValueError as exc:
+            logger.warning(
+                "ui.action_input_error | action=%s | error=%s",
+                action_name,
+                exc,
+                exc_info=True,
+            )
             open_secondary_window(f"{action_name} failed:\n{exc}", title="Input Error")
         except Exception as exc:
-            # Keep traceback in console for debugging while showing a user-friendly popup.
-            traceback.print_exc()
+            logger.exception("ui.action_failed | action=%s", action_name)
             open_secondary_window(f"{action_name} failed:\n{exc}", title="Unexpected Error")
 
     def _iter_grids(self):
@@ -948,6 +992,12 @@ class DropletGui(tk.Tk):
         """Create a new grid in a new tab."""
         max_grid_count = self._get_max_grid_count()
         if self.grid_count >= max_grid_count:
+            log_options(
+                logger,
+                "grid.add_blocked",
+                active_count=self.grid_count,
+                maximum=max_grid_count,
+            )
             open_secondary_window(f"Cannot add more grids (maximum {max_grid_count})")
             return
 
@@ -977,11 +1027,25 @@ class DropletGui(tk.Tk):
         self.grid_tab_dict[grid_number] = grid_obj
         self.grid_count = len(self.grid_tab_dict)
         self._update_grid_tab_title(grid_number, grid_obj.get_grid_name())
+        log_options(
+            logger,
+            "grid.added",
+            grid_number=grid_number,
+            config_path=config_file,
+            active_count=self.grid_count,
+            maximum=max_grid_count,
+        )
 
     def instance_spiral(self):
         """Create a new spiral object in a new tab."""
         max_spiral_count = self._get_max_grid_count()
         if self.spiral_count >= max_spiral_count:
+            log_options(
+                logger,
+                "spiral.add_blocked",
+                active_count=self.spiral_count,
+                maximum=max_spiral_count,
+            )
             open_secondary_window(f"Cannot add more spirals (maximum {max_spiral_count})")
             return
 
@@ -1006,10 +1070,19 @@ class DropletGui(tk.Tk):
         self.spiral_tab_dict[spiral_number] = spiral_obj
         self.spiral_count = len(self.spiral_tab_dict)
         self._update_spiral_tab_title(spiral_number, spiral_obj.get_grid_name())
+        log_options(
+            logger,
+            "spiral.added",
+            spiral_number=spiral_number,
+            config_path=config_file,
+            active_count=self.spiral_count,
+            maximum=max_spiral_count,
+        )
 
     def subtract_spiral(self):
         """Remove the last spiral tab."""
         if self.spiral_count == 0:
+            logger.info("spiral.remove_blocked | reason=no_spirals")
             open_secondary_window("No spirals to remove")
             return
 
@@ -1017,6 +1090,12 @@ class DropletGui(tk.Tk):
         self.spiral_tabs.forget(last_spiral_number - 1)
         self.spiral_tab_dict.pop(last_spiral_number, None)
         self.spiral_count = len(self.spiral_tab_dict)
+        log_options(
+            logger,
+            "spiral.removed",
+            spiral_number=last_spiral_number,
+            active_count=self.spiral_count,
+        )
         try:
             if hasattr(self, 'canvas_drawer') and self.canvas_drawer:
                 self.canvas_drawer.refresh()
@@ -1026,6 +1105,7 @@ class DropletGui(tk.Tk):
     def subtract_grid(self):
         """Remove the last grid tab."""
         if self.grid_count == 0:
+            logger.info("grid.remove_blocked | reason=no_grids")
             open_secondary_window("No grids to remove")
             return
 
@@ -1038,6 +1118,12 @@ class DropletGui(tk.Tk):
         # Clean up grid references
         self.grid_tab_dict.pop(last_grid_number, None)
         self.grid_count = len(self.grid_tab_dict)
+        log_options(
+            logger,
+            "grid.removed",
+            grid_number=last_grid_number,
+            active_count=self.grid_count,
+        )
         try:
             if hasattr(self, 'canvas_drawer') and self.canvas_drawer:
                 self.canvas_drawer.refresh()
@@ -1051,6 +1137,12 @@ class DropletGui(tk.Tk):
             pass
 
     def check_saves(self):
+        log_options(
+            logger,
+            "defaults.save_started",
+            grid_count=self.grid_count,
+            spiral_count=self.spiral_count,
+        )
         # Save counts for both collections
         write_state({"grid_count": self.grid_count, "spiral_count": self.spiral_count}, self.config_dir)
 
@@ -1077,7 +1169,6 @@ class DropletGui(tk.Tk):
             }
 
             save_defaults(cfg_path, grid_dict, cleaning_dict, washing_dict, grid_state_dict)
-            print(f"Saved grid {grid_number} defaults to {cfg_path}")
 
         for spiral_number, spiral_obj in self._iter_spirals():
             cfg_path = os.path.join(self.config_dir, f"config_spiral_{spiral_number}.json")
@@ -1087,7 +1178,7 @@ class DropletGui(tk.Tk):
                 "spiral_color": spiral_obj.get_grid_color(),
             }
             save_defaults(cfg_path, spiral_dict, spiral_state_dict)
-            print(f"Saved spiral {spiral_number} defaults to {cfg_path}")
+        logger.info("defaults.save_completed")
 
     def _get_canvas_parameter_values(self):
         def _safe_float(entry_widget, fallback):
@@ -1163,19 +1254,7 @@ class DropletGui(tk.Tk):
             ).pack(pady=(0, 5))
 
     def save_file(self):
-        save_file(self)
-
-    def _toggle_calibration_button(self):
-        """Show/hide and enable/disable the calibration button based on checkbox state."""
-        if self.anchor_calibration_enabled.get():
-            self.calibration_button.grid()  # Show button
-            self.calibration_button.config(state='normal')
-        else:
-            self.calibration_button.grid_remove()  # Hide button
-
-    def generate_anchor_calibration(self):
-        """Generate anchor calibration G-code."""
-        generate_anchor_calibration(self)
+        return save_file(self)
 
     def _toggle_global_lock(self):
         """Toggle global configuration lock with warning popup."""
@@ -1191,11 +1270,15 @@ class DropletGui(tk.Tk):
                 self.global_locked.set(False)
                 self._update_global_fields_state()
                 self.lock_button.config(text="EDITING")
+                log_options(logger, "global_parameters.lock_changed", locked=False)
+            else:
+                logger.info("global_parameters.unlock_cancelled")
         else:
             # Currently unlocked, lock it
             self.global_locked.set(True)
             self._update_global_fields_state()
             self.lock_button.config(text="LOCKED")
+            log_options(logger, "global_parameters.lock_changed", locked=True)
 
     def _update_global_fields_state(self):
         """Update the state of all global input fields based on lock state."""
@@ -1310,9 +1393,12 @@ class DropletGui(tk.Tk):
             ],
         )
         if not filepath:
+            logger.info("profile.load_cancelled | reason=no_input_path")
             return
 
+        log_options(logger, "profile.load_started", path=filepath)
         parsed = self._parse_generation_json_file(filepath)
+        log_options(logger, "profile.validated", path=filepath, profile=parsed)
 
         workflow_store = None
         validated_workflow = None
@@ -1381,7 +1467,16 @@ class DropletGui(tk.Tk):
                 if hasattr(self, 'canvas_drawer') and self.canvas_drawer:
                     self.canvas_drawer.refresh()
             except Exception:
-                pass
+                logger.exception("canvas.refresh_after_profile_load_failed")
+        log_options(
+            logger,
+            "profile.load_completed",
+            path=filepath,
+            grid_count=self.grid_count,
+            spiral_count=self.spiral_count,
+            workflow_replaced=workflow_store is not None,
+            global_parameters_locked=bool(self.global_locked.get()),
+        )
 
 def open_secondary_window(text, title="Notice", parent=None):
     parent = parent or tk._default_root

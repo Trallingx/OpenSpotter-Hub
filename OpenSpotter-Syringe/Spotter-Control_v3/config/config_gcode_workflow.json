@@ -48,12 +48,6 @@
           "name": "Machine setup and needle calibration",
           "trigger": "job_start",
           "template": "\nG90 ;use absolute coordinates\nG21 ;unit mm\nNEEDLE_TIP_OFFSETS_DISABLE ; Homing and mesh use machine/probe coordinates\n\n;Homing sequence\nM117 Gantry Align\nG28 Z0 ;Home Z\nG28 Y0 ;Home Y\nG0 Z{{custom.x_homing_clearance_z}} F{{global.adcent_speed}};Move to X Homing position\nG28 X0 ;Home X\nG0 X{{global.probe_x}} Y{{global.probe_y}} F{{global.movement_speed}} ; Go with Head to probe position\nSET_TMC_FIELD STEPPER=stepper_z FIELD=SGT VALUE=0\nG0 Z{{global.probe_ram_height}} F{{global.probe_feed_rate}} ; Ram into top\nG0 Z{{global.probe_return_height}} F{{global.probe_feed_rate}} ; Back down\nSET_TMC_FIELD STEPPER=stepper_z FIELD=SGT VALUE=4\nG28 Z0; Home Z again\nG28 Z0; Home Z again\nM117 Aligned\nMESH X_MIN={{acceptance.x_left:.3f}} X_MAX={{acceptance.x_right:.3f}} Y_MIN={{acceptance.y_bottom:.3f}} Y_MAX={{acceptance.y_top:.3f}} POINTS={{global.mesh_points}} ;Home Z with mesh bed leveling inside acceptance square\nNEEDLE_TIP_OFFSETS_ENABLE ; Apply saved TCP offsets plus live needle Z trim to normal moves\nG0 X{{global.probe_x}} Y{{global.probe_y}} F{{global.movement_speed}}; Go with probe above vacuum chuck\nHOME_SYRINGE\nDISPENSE MM=0\nG1 Z{{global.calibration_height}} F{{global.calibration_feed_rate}}\nM117 ;Calibrate Needle to touch substrate\nPAUSE\nG0 Z{{global.z_movement_pos_high}} F{{global.adcent_speed}}\n"
-        },
-        {
-          "id": "start_anchor_calibration",
-          "name": "Anchor calibration",
-          "trigger": "anchor_calibration",
-          "template": "; Anchor Calibration Sequence\nG0 X{{runtime.anchor.x}} Y{{runtime.anchor.y}} F{{global.movement_speed}} ; Move to anchor position\nG0 Z{{global.z_movement_pos_low}} F{{global.decent_speed}} ; Lower needle to calibration height\nWAIT S={{global.calibration_wait}} ; Wait at calibration position\nG0 Z{{global.z_movement_pos_high}} F{{global.adcent_speed}} ; Raise needle to safe height\n; Calibration complete\n"
         }
       ]
     },

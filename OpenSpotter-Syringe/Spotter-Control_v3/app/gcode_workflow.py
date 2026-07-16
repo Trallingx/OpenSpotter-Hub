@@ -31,6 +31,10 @@ from .input_configs import (
     SPIRAL_FIELDS,
     WASHING_FIELDS,
 )
+from .runtime_logging import get_logger, log_options
+
+
+logger = get_logger("workflow")
 
 
 SCHEMA_VERSION = 1
@@ -46,7 +50,6 @@ _GLOBAL_SENTINEL = "__workflow_namespace_global__"
 # back from the trigger chooser.
 EVENT_TRIGGERS = (
     "job_start",
-    "anchor_calibration",
     "syringe_reload",
     "grid_start",
     "grid_spot_move",
@@ -98,7 +101,6 @@ _VARIABLE_TRIGGER_SCOPES = {
         "rinse_midpoint",
         "syringe_empty_end",
     },
-    "runtime.anchor.": {"anchor_calibration"},
     "runtime.spot.start_index": _SPIRAL_SPOT_TRIGGERS,
     "runtime.spot.dispense_ul": _SPIRAL_SPOT_TRIGGERS,
     "runtime.spot.segment_length": _SPIRAL_SPOT_TRIGGERS,
@@ -127,7 +129,6 @@ _VARIABLE_JOB_KIND_SCOPES = {
     "cleaning.": {"grid"},
     "washing.": {"grid"},
     "spiral.": {"spiral"},
-    "runtime.anchor.": {"anchor"},
     "runtime.spot.start_index": {"spiral"},
     "runtime.spot.dispense_ul": {"spiral"},
     "runtime.spot.segment_length": {"spiral"},
@@ -926,10 +927,23 @@ class WorkflowStore:
         self.path = Path(path)
 
     def load(self) -> dict[str, Any]:
-        return load_workflow(self.path)
+        workflow = load_workflow(self.path)
+        log_options(logger, "workflow.loaded", path=self.path, workflow=workflow)
+        return workflow
 
     def save(self, workflow: Mapping[str, Any]) -> Path:
-        return save_workflow(workflow, self.path)
+        try:
+            destination = save_workflow(workflow, self.path)
+        except Exception:
+            logger.exception("workflow.save_failed | path=%s", self.path)
+            raise
+        log_options(
+            logger,
+            "workflow.persisted",
+            path=destination,
+            workflow=workflow,
+        )
+        return destination
 
     def validate(self, workflow: Mapping[str, Any]) -> dict[str, Any]:
         return validate_workflow(workflow)
@@ -972,7 +986,6 @@ def build_runtime_context_defaults() -> dict[str, Any]:
         "container": {"id": 0, "x": 0.0, "y": 0.0, "z": 0.0},
         "runtime": {
             "job": {"kind": "preview", "pattern_index": 0},
-            "anchor": {"x": 0.0, "y": 0.0},
             "spot": {
                 "index": 0,
                 "start_index": 0,
@@ -1085,6 +1098,11 @@ class WorkflowEngine:
             for section in block["sections"]
             if section["trigger"] == trigger
         ]
+        logger.debug(
+            "workflow.trigger_evaluated | trigger=%s | matching_sections=%d",
+            trigger,
+            len(matching_sections),
+        )
         requested_custom = set()
         for _block, section in matching_sections:
             expressions = [
@@ -1106,9 +1124,11 @@ class WorkflowEngine:
         )
         merged["custom"] = custom_values
         output = []
+        skipped_conditions = 0
         for block, section in matching_sections:
             condition = section.get("condition")
             if condition and not bool(_EVALUATOR.evaluate(condition, merged)):
+                skipped_conditions += 1
                 continue
             try:
                 output.append(render_template(section["template"], merged))
@@ -1118,6 +1138,12 @@ class WorkflowEngine:
                 ) from exc
         self._last_context = merged
         self._last_custom_values = custom_values
+        logger.debug(
+            "workflow.trigger_rendered | trigger=%s | rendered_sections=%d | skipped_conditions=%d",
+            trigger,
+            len(output),
+            skipped_conditions,
+        )
         return "".join(output)
 
     render = emit
@@ -1157,9 +1183,7 @@ _DERIVED_VARIABLES = (
     ("cleaning.cycle", "Cleaning cycle", "integer", "", "Zero-based cleaning-grid cycle"),
     ("spiral.name", "Spiral name", "string", "", "Current spiral display name"),
     ("spiral.color", "Spiral color", "string", "", "Current spiral display color"),
-    ("runtime.anchor.x", "Anchor X", "number", "mm", "Current calibration anchor X"),
-    ("runtime.anchor.y", "Anchor Y", "number", "mm", "Current calibration anchor Y"),
-    ("runtime.job.kind", "Job kind", "string", "", "Grid, spiral, anchor, or preview job"),
+    ("runtime.job.kind", "Job kind", "string", "", "Grid, spiral, or preview job"),
     ("runtime.job.pattern_index", "Pattern index", "integer", "", "One-based active pattern index"),
     ("runtime.spot.index", "Spot index", "integer", "", "Zero-based spot index"),
     ("runtime.spot.start_index", "Spiral start", "integer", "", "Zero-based multi-start spiral index"),

@@ -42,6 +42,7 @@ Compact machine-oriented context for maintainers and automation.
 - Saving with both recipe types creates separate `_grid.gcode` and `_spiral.gcode` jobs and matching profiles.
 - `output/gcodes` is ignored runtime output and intentionally contains no examples.
 - Canvas rectangles and images use top-left coordinates; circles use centre coordinates. Unlinked geometry is display-only; optional schema-version 2 X/Y/width/height bindings resolve from real program inputs, and guarded reverse writes must honor the global machine-parameter lock.
+- Visual-object persistence is painter order from back to front; the editor displays the reverse so higher rows are topmost and layer moves preserve the current appearance until explicitly reordered.
 - The canvas origin is the CAPTRON TCP crossing, X0/Y0, with positive X right and positive Y down. The default editable CAPTRON image is 60 × 60 mm and uses `assets/Captron-TCP.png`.
 - Build plate, acceptance area, containers, and CAPTRON placeholder all live in the persisted visual-object collection; axes and generated job previews do not.
 - Klipper config targets Einsy RAMBo 1.1a. TMC2130 sections live only in `tmc2130.cfg`.
@@ -73,6 +74,8 @@ Compact machine-oriented context for maintainers and automation.
 
 ## Change log
 
+- 2026-07-16: Limited application generation to grid and spiral jobs by removing the obsolete standalone calibration UI/event path and its dedicated wait setting; startup needle calibration and hardware TCP calibration remain separate.
+- 2026-07-16: Added persistent Move Up/Move Down visual layering with a front-to-back editor list while preserving existing canvas appearance and stored painter order.
 - 2026-07-16: Added persistent visual-property bindings to stable numeric program inputs, automatic legacy-container X/Y migration, live canvas resolution with safe fallbacks, and lock-aware reverse editing.
 - 2026-07-16: Reflected the machine Y convention to positive-down, including the canvas transform, Y stepper direction, and TCP beam geometry/acquisition defaults.
 - 2026-07-16: Added imported image objects with exact millimetre scaling, portable project paths, external-file selection, and cached Tk rendering; migrated CAPTRON to the editable image type.
