@@ -34,6 +34,7 @@ from .runtime_job import (
     capture_generation_snapshot,
     generate_job_artifact,
 )
+from .plugin_runtime import require_application_plugin
 from .runtime_logging import get_logger, log_options
 
 
@@ -897,8 +898,14 @@ class MachineControlController:
         workflow_hash = hashlib.sha256(
             snapshot.workflow_json.encode("utf-8")
         ).hexdigest()[:12]
-        item_count = len(snapshot.grids) if snapshot.kind == "grid" else len(snapshot.spirals)
-        item_label = "grid" if snapshot.kind == "grid" else "spiral"
+        recipes = getattr(snapshot, "recipes", None)
+        if recipes is None:
+            # Compatibility for callers still constructing pre-plugin
+            # snapshots with a pluralized recipe attribute.
+            recipes = getattr(snapshot, "{}s".format(snapshot.kind), ())
+        item_count = len(recipes)
+        plugin = require_application_plugin(snapshot.kind)
+        item_label = plugin.manifest.display_name.lower()
         if item_count != 1:
             item_label += "s"
         self._pending_job_summary = (

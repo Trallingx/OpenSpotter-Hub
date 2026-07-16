@@ -18,7 +18,6 @@ import math
 import operator
 import os
 import re
-import tempfile
 import tokenize
 from collections.abc import Mapping
 from decimal import Decimal
@@ -26,13 +25,14 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from .input_configs import (
-    CLEANING_FIELDS,
-    GLOBAL_FIELDS,
-    GRID_FIELDS,
-    SPIRAL_FIELDS,
-    WASHING_FIELDS,
+from .core.storage import write_json_atomic
+from .core.workflow import (
+    aggregate_registry_workflow_contributions,
+    build_core_workflow_contribution,
 )
+from .input_configs import GLOBAL_FIELDS
+from .paths import RESOURCE_CONFIG_DIR, WORKFLOW_CONFIG
+from .plugins import discover_plugins, get_registry
 from .runtime_logging import get_logger, log_options
 
 
@@ -40,113 +40,43 @@ logger = get_logger("workflow")
 
 
 SCHEMA_VERSION = 1
-DEFAULT_WORKFLOW_PATH = (
-    Path(__file__).resolve().parent.parent / "config" / "config_gcode_workflow.json"
-)
+DEFAULT_WORKFLOW_PATH = WORKFLOW_CONFIG
+SHIPPED_WORKFLOW_PATH = RESOURCE_CONFIG_DIR / "config_gcode_workflow.json"
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _PLACEHOLDER_RE = re.compile(r"{{(.*?)}}", re.DOTALL)
 _GLOBAL_SENTINEL = "__workflow_namespace_global__"
 
-# Logical planner events are public workflow extension points.  They are kept
-# here (rather than in the editor) so a removed section can always be added
-# back from the trigger chooser.
-EVENT_TRIGGERS = (
-    "job_start",
-    "syringe_reload",
-    "grid_start",
-    "grid_spot_move",
-    "grid_row_start",
-    "grid_spot_dispense",
-    "spiral_start",
-    "spiral_drop",
-    "spiral_continuous",
-    "cleaning_start",
-    "cleaning_spot_move",
-    "cleaning_row_start",
-    "cleaning_spot_dispense",
-    "washing_start",
-    "washing_cycle",
-    "washing_end",
-    "syringe_empty_start",
-    "rinse_cycle",
-    "rinse_midpoint",
-    "syringe_empty_end",
-    "job_end",
+# Discovering here makes workflow extension points available to validation and
+# the editor before either creates an engine. The compatibility facade keeps the
+# operation idempotent when another subsystem already initialized plugins.
+discover_plugins()
+_WORKFLOW_CONTRIBUTIONS = aggregate_registry_workflow_contributions(
+    get_registry(),
+    build_core_workflow_contribution(GLOBAL_FIELDS),
 )
 
-_GRID_SPOT_TRIGGERS = {
-    "grid_spot_move",
-    "grid_row_start",
-    "grid_spot_dispense",
-    "cleaning_spot_move",
-    "cleaning_row_start",
-    "cleaning_spot_dispense",
-}
-_SPIRAL_SPOT_TRIGGERS = {"spiral_drop", "spiral_continuous"}
-_ALL_SPOT_TRIGGERS = _GRID_SPOT_TRIGGERS | _SPIRAL_SPOT_TRIGGERS
-
-# A trailing dot denotes a namespace prefix; other entries match one exact
-# public variable.  Exact spot fields are intentionally listed separately so
-# a spiral-only value can never validate in a grid event and quietly render a
-# neutral preview default.
+# These compatibility views preserve the module's established public and
+# internal contracts while their source of truth is now registry-driven.
+EVENT_TRIGGERS = _WORKFLOW_CONTRIBUTIONS.triggers
+_FIELD_GROUPS = tuple(
+    (group.namespace, group.fields, group.source)
+    for group in _WORKFLOW_CONTRIBUTIONS.field_groups
+)
 _VARIABLE_TRIGGER_SCOPES = {
-    "cleaning.cycle": {
-        "cleaning_start",
-        "cleaning_spot_move",
-        "cleaning_row_start",
-        "cleaning_spot_dispense",
-    },
-    "container.": {
-        "syringe_reload",
-        "syringe_empty_start",
-        "rinse_cycle",
-        "rinse_midpoint",
-        "syringe_empty_end",
-    },
-    "runtime.spot.start_index": _SPIRAL_SPOT_TRIGGERS,
-    "runtime.spot.dispense_ul": _SPIRAL_SPOT_TRIGGERS,
-    "runtime.spot.segment_length": _SPIRAL_SPOT_TRIGGERS,
-    "runtime.spot.theta": _SPIRAL_SPOT_TRIGGERS,
-    "runtime.spot.radius": _SPIRAL_SPOT_TRIGGERS,
-    "runtime.spot.continuous": _SPIRAL_SPOT_TRIGGERS,
-    "runtime.spot.row": _GRID_SPOT_TRIGGERS,
-    "runtime.spot.column": _GRID_SPOT_TRIGGERS,
-    "runtime.spot.is_row_start": _GRID_SPOT_TRIGGERS,
-    "runtime.spot.": _ALL_SPOT_TRIGGERS,
-    "runtime.refill.": {"syringe_reload"},
-    "runtime.washing.": {"washing_start", "washing_cycle", "washing_end"},
-    "runtime.rinse.": {
-        "syringe_empty_start",
-        "rinse_cycle",
-        "rinse_midpoint",
-        "syringe_empty_end",
-    },
+    scope.pattern: set(scope.values)
+    for scope in _WORKFLOW_CONTRIBUTIONS.variable_trigger_scopes
 }
-
-# Job-kind metadata is advisory rather than a hard validation boundary: shared
-# events such as job_start can safely use a mode-specific value when guarded by
-# runtime.job.kind.  The editor surfaces this information next to event scope.
 _VARIABLE_JOB_KIND_SCOPES = {
-    "grid.": {"grid"},
-    "cleaning.": {"grid"},
-    "washing.": {"grid"},
-    "spiral.": {"spiral"},
-    "runtime.spot.start_index": {"spiral"},
-    "runtime.spot.dispense_ul": {"spiral"},
-    "runtime.spot.segment_length": {"spiral"},
-    "runtime.spot.theta": {"spiral"},
-    "runtime.spot.radius": {"spiral"},
-    "runtime.spot.continuous": {"spiral"},
-    "runtime.spot.row": {"grid"},
-    "runtime.spot.column": {"grid"},
-    "runtime.spot.is_row_start": {"grid"},
-    "runtime.spot.": {"grid", "spiral"},
-    "runtime.washing.": {"grid"},
+    scope.pattern: set(scope.values)
+    for scope in _WORKFLOW_CONTRIBUTIONS.variable_job_kind_scopes
 }
-_REQUIRED_PLANNER_VARIABLES = {
-    "syringe_mm_per_ul",
-    "spiral_resolution_radians",
-}
+_DERIVED_VARIABLES = tuple(
+    variable.compatibility_tuple()
+    for variable in _WORKFLOW_CONTRIBUTIONS.derived_variables
+)
+_REQUIRED_PLANNER_VARIABLES = set(
+    _WORKFLOW_CONTRIBUTIONS.required_custom_variables
+)
 
 
 class WorkflowError(Exception):
@@ -458,6 +388,8 @@ def _compile_template(
 
 
 def template_expressions(template: str) -> list[tuple[str, str | None]]:
+    """Return the validated expressions and format specs in a template."""
+
     if not isinstance(template, str):
         raise TemplateRenderError("Template must be a string")
     segments, _trailing_literal = _compile_template(template)
@@ -945,6 +877,8 @@ def validate_workflow(workflow: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def load_workflow(path: str | os.PathLike[str] = DEFAULT_WORKFLOW_PATH) -> dict[str, Any]:
+    """Load and validate one workflow document from disk."""
+
     workflow_path = Path(path)
     try:
         with workflow_path.open("r", encoding="utf-8") as handle:
@@ -958,7 +892,7 @@ def load_workflow(path: str | os.PathLike[str] = DEFAULT_WORKFLOW_PATH) -> dict[
 
 def default_workflow() -> dict[str, Any]:
     """Return a detached copy of the shipped editable workflow."""
-    return load_workflow(DEFAULT_WORKFLOW_PATH)
+    return load_workflow(SHIPPED_WORKFLOW_PATH)
 
 
 def save_workflow(
@@ -968,25 +902,7 @@ def save_workflow(
     """Validate and atomically save a workflow JSON document."""
     payload = validate_workflow(workflow)
     workflow_path = Path(path)
-    workflow_path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary_name = tempfile.mkstemp(
-        dir=str(workflow_path.parent),
-        prefix=f".{workflow_path.name}.",
-        suffix=".tmp",
-    )
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
-            json.dump(payload, handle, indent=2, ensure_ascii=False)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary_name, workflow_path)
-    except Exception:
-        try:
-            os.unlink(temporary_name)
-        except OSError:
-            pass
-        raise
+    write_json_atomic(workflow_path, payload, replace=os.replace)
     return workflow_path
 
 
@@ -1037,59 +953,7 @@ def build_runtime_context_defaults() -> dict[str, Any]:
     while the engine is being constructed and lets the editor preview every
     shipped trigger without inventing machine commands.
     """
-    context: dict[str, Any] = {}
-    for namespace, fields, _source in _FIELD_GROUPS:
-        context[namespace] = {
-            field.key: copy.deepcopy(field.default)
-            for field in fields
-        }
-    context["grid"].update({"name": "Grid", "color": "green"})
-    context["cleaning"].update({"cycle": 0})
-    context["spiral"].update({"name": "Spiral", "color": "orange"})
-    context.update({
-        "acceptance": {
-            "x_left": 0.0,
-            "x_right": 0.0,
-            "y_bottom": 0.0,
-            "y_top": 0.0,
-        },
-        "container": {"id": 0, "x": 0.0, "y": 0.0, "z": 0.0},
-        "runtime": {
-            "job": {"kind": "preview", "pattern_index": 0},
-            "spot": {
-                "index": 0,
-                "start_index": 0,
-                "row": 0,
-                "column": 0,
-                "x": 0.0,
-                "y": 0.0,
-                "dispense_mm": 0.0,
-                "dispense_ul": 0.0,
-                "segment_length": 0.0,
-                "theta": 0.0,
-                "radius": 0.0,
-                "continuous": False,
-                "is_row_start": True,
-            },
-            "refill": {
-                "reason": "preview",
-                "dynamic": False,
-                "container_id": 0,
-                "fill_mm": 0.0,
-                "priming_mm": 0.0,
-                "target_fill_mm": 0.0,
-                "target_fill_ul": 0.0,
-                "remaining_spots_mm": 0.0,
-                "cleaning_mm": 0.0,
-                "reserve_mm": 0.0,
-                "total_needed_mm": 0.0,
-                "cap_mm": 0.0,
-            },
-            "washing": {"cycle": 0, "x_start": 0.0, "x_end": 0.0},
-            "rinse": {"cycle": 0, "phase": 0, "max_mm": 0.0, "min_mm": 0.0},
-        },
-    })
-    return context
+    return copy.deepcopy(dict(_WORKFLOW_CONTRIBUTIONS.context_defaults))
 
 
 class WorkflowEngine:
@@ -1101,7 +965,10 @@ class WorkflowEngine:
         base_context: Mapping[str, Any] | None = None,
     ):
         if workflow_or_path is None:
-            workflow = load_workflow(DEFAULT_WORKFLOW_PATH)
+            try:
+                workflow = load_workflow(DEFAULT_WORKFLOW_PATH)
+            except FileNotFoundError:
+                workflow = default_workflow()
         elif isinstance(workflow_or_path, Mapping):
             workflow = validate_workflow(workflow_or_path)
         else:
@@ -1265,67 +1132,10 @@ def render_preview(
     trigger: str,
     context: Mapping[str, Any] | None = None,
 ) -> str:
+    """Render one trigger against neutral defaults plus optional overrides."""
+
     preview_context = _deep_merge(build_runtime_context_defaults(), context or {})
     return WorkflowEngine(workflow, preview_context).emit(trigger)
-
-
-_FIELD_GROUPS = (
-    ("global", GLOBAL_FIELDS, "GLOBAL_FIELDS"),
-    ("grid", GRID_FIELDS, "GRID_FIELDS"),
-    ("cleaning", CLEANING_FIELDS, "CLEANING_FIELDS"),
-    ("washing", WASHING_FIELDS, "WASHING_FIELDS"),
-    ("spiral", SPIRAL_FIELDS, "SPIRAL_FIELDS"),
-)
-
-_DERIVED_VARIABLES = (
-    ("acceptance.x_left", "Acceptance left", "number", "mm", "Computed acceptance-square left edge"),
-    ("acceptance.x_right", "Acceptance right", "number", "mm", "Computed acceptance-square right edge"),
-    ("acceptance.y_bottom", "Acceptance bottom", "number", "mm", "Computed acceptance-square bottom edge"),
-    ("acceptance.y_top", "Acceptance top", "number", "mm", "Computed acceptance-square top edge"),
-    ("container.id", "Container number", "integer", "", "Active loading or emptying container"),
-    ("container.x", "Container X", "number", "mm", "Active container X coordinate"),
-    ("container.y", "Container Y", "number", "mm", "Active container Y coordinate"),
-    ("container.z", "Container fill Z", "number", "mm", "Active container fill height"),
-    ("grid.name", "Grid name", "string", "", "Current grid display name"),
-    ("grid.color", "Grid color", "string", "", "Current grid display color"),
-    ("cleaning.cycle", "Cleaning cycle", "integer", "", "Zero-based cleaning-grid cycle"),
-    ("spiral.name", "Spiral name", "string", "", "Current spiral display name"),
-    ("spiral.color", "Spiral color", "string", "", "Current spiral display color"),
-    ("runtime.job.kind", "Job kind", "string", "", "Grid, spiral, or preview job"),
-    ("runtime.job.pattern_index", "Pattern index", "integer", "", "One-based active pattern index"),
-    ("runtime.spot.index", "Spot index", "integer", "", "Zero-based spot index"),
-    ("runtime.spot.start_index", "Spiral start", "integer", "", "Zero-based multi-start spiral index"),
-    ("runtime.spot.row", "Spot row", "integer", "", "Zero-based row index"),
-    ("runtime.spot.column", "Spot column", "integer", "", "Zero-based column index"),
-    ("runtime.spot.x", "Spot X", "number", "mm", "Planned spot X coordinate"),
-    ("runtime.spot.y", "Spot Y", "number", "mm", "Planned spot Y coordinate"),
-    ("runtime.spot.dispense_mm", "Spot dispense", "number", "mm", "Plunger travel for this spot"),
-    ("runtime.spot.dispense_ul", "Spot volume", "number", "uL", "Liquid volume for the current spiral point"),
-    ("runtime.spot.segment_length", "Segment length", "number", "mm", "Current spiral segment length"),
-    ("runtime.spot.theta", "Spiral angle", "number", "rad", "Current spiral angular position"),
-    ("runtime.spot.radius", "Spiral radius", "number", "mm", "Current spiral radius"),
-    ("runtime.spot.continuous", "Continuous segment", "boolean", "", "Whether the current spiral point is a continuous segment"),
-    ("runtime.spot.is_row_start", "Row start", "boolean", "", "Whether this spot starts a row"),
-    ("runtime.refill.reason", "Refill reason", "string", "", "Why a refill was planned"),
-    ("runtime.refill.dynamic", "Dynamic refill", "boolean", "", "Whether to include dynamic refill diagnostics"),
-    ("runtime.refill.container_id", "Refill container", "integer", "", "Selected loading container number"),
-    ("runtime.refill.fill_mm", "Aspirated travel", "number", "mm", "Fill plus priming plunger travel"),
-    ("runtime.refill.priming_mm", "Priming travel", "number", "mm", "Priming plunger travel"),
-    ("runtime.refill.target_fill_mm", "Target fill", "number", "mm", "Useful target plunger travel"),
-    ("runtime.refill.target_fill_ul", "Target fill", "number", "uL", "Useful target volume"),
-    ("runtime.refill.remaining_spots_mm", "Remaining spots", "number", "mm", "Remaining grid plunger demand"),
-    ("runtime.refill.cleaning_mm", "Cleaning demand", "number", "mm", "Reserved cleaning demand"),
-    ("runtime.refill.reserve_mm", "Reserve", "number", "mm", "Reserved plunger travel"),
-    ("runtime.refill.total_needed_mm", "Total required", "number", "mm", "Total calculated plunger demand"),
-    ("runtime.refill.cap_mm", "Refill cap", "number", "mm", "Maximum permitted refill"),
-    ("runtime.washing.cycle", "Wash cycle", "integer", "", "Zero-based washing cycle"),
-    ("runtime.washing.x_start", "Wash X start", "number", "mm", "Washing stroke start"),
-    ("runtime.washing.x_end", "Wash X end", "number", "mm", "Washing stroke end"),
-    ("runtime.rinse.cycle", "Rinse cycle", "integer", "", "Rinse cycle number, zero when disabled"),
-    ("runtime.rinse.phase", "Rinse phase", "integer", "", "First or second rinse pass"),
-    ("runtime.rinse.max_mm", "Rinse aspiration", "number", "mm", "Rinse aspiration endpoint"),
-    ("runtime.rinse.min_mm", "Rinse dispense", "number", "mm", "Rinse dispense endpoint"),
-)
 
 
 def _infer_field_type(field: Any) -> str:
@@ -1446,6 +1256,8 @@ def build_variable_catalog(
 __all__ = [
     "SCHEMA_VERSION",
     "DEFAULT_WORKFLOW_PATH",
+    "SHIPPED_WORKFLOW_PATH",
+    "EVENT_TRIGGERS",
     "WorkflowError",
     "WorkflowValidationError",
     "ExpressionError",
@@ -1462,5 +1274,6 @@ __all__ = [
     "render_template",
     "render_preview",
     "template_expressions",
+    "build_runtime_context_defaults",
     "build_variable_catalog",
 ]

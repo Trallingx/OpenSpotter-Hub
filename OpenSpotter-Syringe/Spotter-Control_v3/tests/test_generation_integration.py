@@ -158,7 +158,11 @@ class GenerationIntegrationTests(unittest.TestCase):
             spiral_profile = json.loads(
                 (temp_path / "spiral_job_settings.json").read_text(encoding="utf-8")
             )
-            self.assertEqual(grid_profile["schema_version"], 2)
+            self.assertEqual(grid_profile["schema_version"], 3)
+            self.assertEqual(
+                grid_profile["patterns"][0]["plugin_id"],
+                "grid",
+            )
             self.assertEqual(grid_profile["grid_settings"][0]["grid_name"], "Integration Grid")
             self.assertEqual(
                 spiral_profile["spiral_settings"][0]["spiral_name"],

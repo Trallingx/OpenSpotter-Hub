@@ -7,11 +7,11 @@ import ipaddress
 import os
 import re
 import stat
-import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
+from ..core.storage import write_json_atomic
 from ..paths import CONFIG_DIR
 from .config import MoonrakerConfig
 
@@ -183,33 +183,13 @@ def save_connection_settings(
         raise TypeError("settings must be MoonrakerConnectionSettings")
 
     config_path = Path(path)
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    file_descriptor, temporary_name = tempfile.mkstemp(
-        prefix=f".{config_path.name}.",
-        suffix=".tmp",
-        dir=str(config_path.parent),
+    write_json_atomic(
+        config_path,
+        settings.to_persisted_mapping(),
+        replace=os.replace,
     )
-    temporary_path = Path(temporary_name)
     try:
-        with os.fdopen(file_descriptor, "w", encoding="utf-8") as config_file:
-            json.dump(
-                settings.to_persisted_mapping(),
-                config_file,
-                indent=2,
-                ensure_ascii=False,
-            )
-            config_file.write("\n")
-            config_file.flush()
-            os.fsync(config_file.fileno())
-        os.replace(str(temporary_path), str(config_path))
-        try:
-            os.chmod(config_path, stat.S_IRUSR | stat.S_IWUSR)
-        except OSError:
-            pass
-    except BaseException:
-        try:
-            temporary_path.unlink()
-        except OSError:
-            pass
-        raise
+        os.chmod(config_path, stat.S_IRUSR | stat.S_IWUSR)
+    except OSError:
+        pass
     return config_path

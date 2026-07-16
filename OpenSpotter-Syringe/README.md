@@ -19,6 +19,9 @@ OpenSpotter-Syringe is an open-source, syringe-driven liquid-handling and spotti
 
 - [GETTING_STARTED.md](GETTING_STARTED.md): install, validate, generate a job, and prepare hardware.
 - [Spotter-Control_v3/README.md](Spotter-Control_v3/README.md): application behavior and profile contract.
+- [Spotter-Control_v3/ARCHITECTURE.md](Spotter-Control_v3/ARCHITECTURE.md): deployable core/plugin architecture and dependency boundaries.
+- [Spotter-Control_v3/PLUGIN_DEVELOPMENT.md](Spotter-Control_v3/PLUGIN_DEVELOPMENT.md): external pattern plugin contract and examples.
+- [Spotter-Control_v3/DEPLOYMENT.md](Spotter-Control_v3/DEPLOYMENT.md): wheel, standalone, and writable-data deployment.
 - [Spotter-Control_v3/hardware/klipper/README.md](Spotter-Control_v3/hardware/klipper/README.md): configuration, commissioning, TCP calibration, and movement safety.
 - [CAD/README.md](CAD/README.md): mechanical-file inventory and manufacturing cautions.
 - [Docs/README.md](Docs/README.md): BOM, schematics, datasheets, calibration references, and photos.
@@ -28,7 +31,12 @@ Generated files default to `Spotter-Control_v3/output/gcodes`. That directory is
 
 ## Repository layout
 
-- `Spotter-Control_v3/app`: desktop UI, planners, compiled workflow renderer, direct-run artifacts, Moonraker runtime/controller, and pattern code.
+- `Spotter-Control_v3/app/core`: reusable plugin, schema, storage, canvas,
+  workflow, and shared G-code services.
+- `Spotter-Control_v3/app/plugins`: built-in grid and spiral pattern packages;
+  installed patterns use the documented entry-point contract.
+- `Spotter-Control_v3/app`: generic desktop shell, compiled workflow renderer,
+  direct-run artifacts, and Moonraker runtime/controller.
 - `Spotter-Control_v3/config`: editable JSON defaults, workflow, visual layout, and UI state.
 - `Spotter-Control_v3/hardware/klipper`: active Klipper configuration and custom TCP module.
 - `Spotter-Control_v3/tests`: standard-library unit and integration tests.

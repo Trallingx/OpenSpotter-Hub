@@ -11,11 +11,11 @@ import json
 import math
 import os
 import re
-import tempfile
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping
 
+from .core.storage import write_json_atomic
 
 VISUAL_OBJECT_CONFIG_VERSION = 2
 VISUAL_OBJECT_TYPES = ("rectangle", "circle", "image")
@@ -457,22 +457,5 @@ class VisualObjectStore:
             payload = {"objects": list(objects)}
         normalized = normalize_visual_object_config(payload)
 
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        descriptor, temporary_path = tempfile.mkstemp(
-            prefix=f".{self.path.name}.",
-            suffix=".tmp",
-            dir=str(self.path.parent),
-            text=True,
-        )
-        try:
-            with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
-                json.dump(normalized, handle, indent=2)
-                handle.write("\n")
-            os.replace(temporary_path, self.path)
-        except Exception:
-            try:
-                os.unlink(temporary_path)
-            except OSError:
-                pass
-            raise
+        write_json_atomic(self.path, normalized, replace=os.replace)
         return normalized

@@ -1,0 +1,11 @@
+include LICENSE.txt
+include README.md
+include pyproject.toml
+recursive-include app *.py
+recursive-include assets *.png
+recursive-include config *.json
+exclude config/config_moonraker.json
+recursive-include tests *.py
+recursive-include hardware/klipper *.cfg *.conf *.md *.py
+prune logs
+prune output

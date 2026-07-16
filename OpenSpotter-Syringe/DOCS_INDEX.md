@@ -9,6 +9,11 @@
 ## Application
 
 - [Spotter-Control_v3/README.md](Spotter-Control_v3/README.md): user-facing application behavior.
+- [Spotter-Control_v3/DEPLOYMENT.md](Spotter-Control_v3/DEPLOYMENT.md): package, standalone, and runtime-data deployment.
+- [Spotter-Control_v3/VERSIONING.md](Spotter-Control_v3/VERSIONING.md): release and compatibility version policy.
+- [Spotter-Control_v3/CHANGELOG.md](Spotter-Control_v3/CHANGELOG.md): user-visible change history.
+- [Spotter-Control_v3/ARCHITECTURE.md](Spotter-Control_v3/ARCHITECTURE.md): core/plugin dependency rules, lifecycle, runtime boundaries, and migration status.
+- [Spotter-Control_v3/PLUGIN_DEVELOPMENT.md](Spotter-Control_v3/PLUGIN_DEVELOPMENT.md): external entry points, plugin APIs, hooks, compatibility, and tests.
 - [Spotter-Control_v3/Spotter_Control_Dev.md](Spotter-Control_v3/Spotter_Control_Dev.md): source map and developer contracts.
 - [Spotter-Control_v3/config/config_gcode_workflow.json](Spotter-Control_v3/config/config_gcode_workflow.json): active machine-command workflow.
 - [Spotter-Control_v3/config/config_visual_objects.json](Spotter-Control_v3/config/config_visual_objects.json): display-only canvas layout.

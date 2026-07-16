@@ -1,7 +1,7 @@
-import json
+"""Desktop application startup and persisted workspace restoration."""
 
+from .core.configuration import read_defaults
 from .gui_v3 import DropletGui
-from .SpotterFunctions import read_defaults
 from .input_configs import GLOBAL_FIELDS
 from .paths import CONFIG_DIR, LOG_DIR, ensure_runtime_dirs
 from .runtime_logging import configure_logging, get_logger, log_options
@@ -10,7 +10,9 @@ from .runtime_logging import configure_logging, get_logger, log_options
 logger = get_logger("startup")
 
 
-def main():
+def main() -> None:
+    """Prepare writable state, restore recipes, and run the Tk event loop."""
+
     ensure_runtime_dirs()
     log_path = configure_logging(LOG_DIR)
     log_options(
@@ -24,8 +26,7 @@ def main():
 
         # Load global defaults and create global inputs first.
         config_path = CONFIG_DIR / "config_global.json"
-        with open(config_path, "r", encoding="utf-8") as config_file:
-            global_defaults = json.load(config_file)
+        global_defaults = read_defaults(config_path)
         log_options(
             logger,
             "startup.global_options_loaded",
@@ -39,31 +40,44 @@ def main():
             gui.entry,
             gui=gui,
         )
-        max_grid_count = max(1, int(global_defaults.get("max_grid_count", 6)))
+        # ``max_grid_count`` is the legacy persisted key; the value now caps
+        # every registered pattern workspace.
+        max_pattern_count = max(
+            1,
+            int(global_defaults.get("max_grid_count", 6)),
+        )
 
-        # Read grid state from JSON and create grids accordingly.
+        # Restore every registered pattern workspace from the versioned state.
         states_path = CONFIG_DIR / "config_states.json"
         states_data = read_defaults(states_path)
-        requested_grid_count = int(states_data.get("grid_count", 0))
-        requested_spiral_count = int(states_data.get("spiral_count", 0))
-        grid_count = max(0, min(requested_grid_count, max_grid_count))
-        spiral_count = max(0, min(requested_spiral_count, max_grid_count))
+        saved_patterns = states_data.get("patterns", {})
+        if not isinstance(saved_patterns, dict):
+            saved_patterns = {}
+        requested_counts = {}
+        active_counts = {}
+        for plugin in gui.pattern_plugins:
+            plugin_id = plugin.manifest.id
+            requested = int(
+                saved_patterns.get(
+                    plugin_id,
+                    states_data.get(plugin.workspace.state_count_key, 0),
+                )
+            )
+            active = max(0, min(requested, max_pattern_count))
+            requested_counts[plugin_id] = requested
+            active_counts[plugin_id] = active
         log_options(
             logger,
             "startup.pattern_state_restored",
             state_path=states_path,
-            requested_grid_count=requested_grid_count,
-            requested_spiral_count=requested_spiral_count,
-            active_grid_count=grid_count,
-            active_spiral_count=spiral_count,
-            max_pattern_count=max_grid_count,
+            requested_pattern_counts=requested_counts,
+            active_pattern_counts=active_counts,
+            max_pattern_count=max_pattern_count,
         )
 
-        for _ in range(grid_count):
-            gui.instance_grid()
-
-        for _ in range(spiral_count):
-            gui.instance_spiral()
+        for plugin_id, count in active_counts.items():
+            for _ in range(count):
+                gui.instance_pattern(plugin_id)
 
         gui._switch_workspace_mode()
 
@@ -75,8 +89,10 @@ def main():
             "application.ready",
             workspace_mode=gui._current_workspace_mode(),
             global_parameters_locked=bool(gui.global_locked.get()),
-            grid_count=gui.grid_count,
-            spiral_count=gui.spiral_count,
+            pattern_counts={
+                plugin_id: len(workspace.instances)
+                for plugin_id, workspace in gui.pattern_workspaces.items()
+            },
         )
         gui.mainloop()
         logger.info("application.stopped")

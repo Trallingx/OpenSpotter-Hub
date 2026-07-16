@@ -4,13 +4,14 @@ This guide covers the desktop application and the minimum safe path to inspect t
 
 ## Install and run
 
-Create a virtual environment and install the Pillow and aiohttp dependencies:
+Create a virtual environment and install the application in editable mode:
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-python main.py
+python -m pip install --upgrade pip
+python -m pip install -e .
+openspotter-control
 ```
 
 On macOS or Linux, activation is:
@@ -18,24 +19,33 @@ On macOS or Linux, activation is:
 ```sh
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -r requirements.txt
-python main.py
+python -m pip install --upgrade pip
+python -m pip install -e .
+openspotter-control
 ```
 
 The app is a local Tkinter program with optional direct Moonraker control. It still opens and generates saved G-code when no printer is available.
+`python main.py` and `python -m app` remain supported source launchers. Linux
+Python installations may also require `python3-tk`.
 
 ## Validate the checkout
 
 ```powershell
+python -m pip install -e ".[test]"
 python -m compileall -q app
 python -m unittest discover -s tests -v
 ```
+
+Source checkouts retain `config`, `logs`, and `output` beside the application.
+Installed and standalone builds use per-user writable storage. See
+[Spotter-Control_v3/DEPLOYMENT.md](Spotter-Control_v3/DEPLOYMENT.md) for paths,
+portable mode, first-run seeding, and migration.
 
 For a visual smoke test, confirm that:
 
 - the window uses the graphite/grey theme;
 - global defaults load locked from `config/config_global.json`;
-- saved grid and spiral counts restore from `config/config_states.json`;
+- saved registered-plugin counts restore from `config/config_states.json`;
 - the canvas shows the editable 60 × 60 mm CAPTRON image centred at TCP X0/Y0;
 - scroll zoom, drag pan, and **FIT VIEW** work;
 - **VISUAL OBJECTS** edits persisted rectangles, circles, and imported images; unlinked geometry remains display-only;
@@ -63,7 +73,12 @@ experiment_spiral.gcode
 experiment_spiral_settings.json
 ```
 
-Each schema-version 2 settings profile records the global values, pattern recipes, derived runtime values, and effective workflow. **LOAD PROFILE** accepts JSON only. Loading replaces the current grid and spiral tabs; if the profile contains `workflow`, the validated embedded workflow is also saved over `config/config_gcode_workflow.json`.
+Each schema-version 3 settings profile records registered plugin recipes, global
+values, derived runtime values, and the effective workflow. Compatibility arrays
+for the built-in grid and spiral plugins remain present. **LOAD PROFILE** accepts
+JSON only. Loading replaces the current pattern tabs; if the profile contains
+`workflow`, the validated embedded workflow is also saved over
+`config/config_gcode_workflow.json`.
 
 An embedded workflow is executable machine-command data. The application asks separately before replacing the active workflow, and direct Start shows both the workflow hash and exact artifact hash before upload.
 

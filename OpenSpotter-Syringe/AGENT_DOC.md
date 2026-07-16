@@ -26,10 +26,12 @@ Compact machine-oriented context for maintainers and automation.
 - Strict direct-run snapshots/artifacts: `app/runtime_job.py`
 - Shared dark scientific theme: `app/ui_theme.py`
 - Input schemas: `app/input_configs.py`
-- Grid/spiral UI: `app/grid.py`, `app/spiral_grid.py`
+- Pattern UI: `app/plugins/<plugin>/editor.py`; `app/grid.py` and
+  `app/spiral_grid.py` are compatibility exports
 - Canvas objects and optional program links: `app/canvas_drawer.py`, `app/visual_objects.py`, `app/visual_object_editor.py`
 - Generation orchestration: `app/gcode_generation.py`, `app/grid_gcode.py`, `app/spiral_gcode.py`, `app/gcode_shared.py`
-- Numeric lifecycle: `app/gcode_planner.py`
+- Shared numeric lifecycle: `app/core/gcode/lifecycle.py`; pattern planning:
+  `app/plugins/<plugin>/planner.py`
 - Workflow validation/rendering/editor: `app/gcode_workflow.py`, `app/gcode_editor.py`
 - Pattern plugins: `app/plugins`
 - Canonical workflow: `config/config_gcode_workflow.json`
@@ -41,8 +43,10 @@ Compact machine-oriented context for maintainers and automation.
 
 - UI colors and fonts come from `ui_theme.py`; do not reintroduce per-window palettes.
 - Workflow blocks are event hooks. Python retains lifecycle ordering and numeric syringe state.
-- Generated sidecars use schema version 2 and the suffix `_settings.json`; profile loading is JSON-only.
-- Loading a profile rebuilds grid/spiral tabs. An embedded workflow is validated and written to the active workflow config.
+- Generated sidecars use schema version 3 generic plugin recipes, retain
+  built-in schema-version 2 arrays for migration, and use the suffix
+  `_settings.json`; profile loading is JSON-only.
+- Loading a profile rebuilds registered plugin workspaces. An embedded workflow is validated and written to the active workflow config.
 - Saving with both recipe types creates separate `_grid.gcode` and `_spiral.gcode` jobs and matching profiles.
 - `output/gcodes` is ignored runtime output and intentionally contains no examples.
 - Canvas rectangles and images use top-left coordinates; circles use centre coordinates. Unlinked geometry is display-only; optional schema-version 2 X/Y/width/height bindings resolve from real program inputs, and guarded reverse writes must honor the global machine-parameter lock.

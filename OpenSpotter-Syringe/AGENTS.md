@@ -11,8 +11,15 @@
 ## Source contracts
 
 - `Spotter-Control_v3/app/ui_theme.py` is the shared UI palette, typography, and widget-style source.
-- `Spotter-Control_v3/app/input_configs.py` defines input fields; it is not the theme owner.
-- `Spotter-Control_v3/app/gcode_planner.py` owns numeric lifecycle and state transitions.
+- `Spotter-Control_v3/app/input_configs.py` owns application-wide fields and
+  compatibility exports; each pattern plugin owns its fields under
+  `app/plugins/<plugin>/fields.py`.
+- `Spotter-Control_v3/app/core/gcode/lifecycle.py` owns shared fluidic lifecycle
+  behavior. Pattern-specific planning belongs under
+  `app/plugins/<plugin>/planner.py`; `app/gcode_planner.py` is compatibility-only.
+- `Spotter-Control_v3/app/core/plugins.py` owns the plugin API and registry.
+  Built-in selection and desktop composition belong in `app/plugin_runtime.py`,
+  never in core.
 - `Spotter-Control_v3/config/config_gcode_workflow.json` owns emitted machine-command templates.
 - Generation profiles are versioned JSON only.
 - `config/config_visual_objects.json` geometry affects the preview only and never enters G-code directly. Interactive bindings may update their real program inputs, subject to the normal machine-parameter lock.
@@ -33,7 +40,10 @@ Also launch `python main.py` after visible UI or interactive workflow changes. H
 ## Documentation ownership
 
 - User setup and behavior: `README.md`, `GETTING_STARTED.md`, and `Spotter-Control_v3/README.md`.
-- Architecture: `PROJECT_DESCRIPTION.md` and `Spotter-Control_v3/Spotter_Control_Dev.md`.
+- Architecture: `PROJECT_DESCRIPTION.md`,
+  `Spotter-Control_v3/ARCHITECTURE.md`,
+  `Spotter-Control_v3/PLUGIN_DEVELOPMENT.md`, and
+  `Spotter-Control_v3/Spotter_Control_Dev.md`.
 - Hardware: `Spotter-Control_v3/hardware/klipper/README.md` and the relevant config comments.
 - Component/design references: `Docs/README.md` and `CAD/README.md`.
 - Machine-oriented invariants and change note: `AGENT_DOC.md`.

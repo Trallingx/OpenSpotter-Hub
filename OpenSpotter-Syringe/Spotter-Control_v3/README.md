@@ -9,8 +9,9 @@ From this directory on Windows PowerShell:
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-python main.py
+python -m pip install --upgrade pip
+python -m pip install -e .
+openspotter-control
 ```
 
 On macOS or Linux:
@@ -18,15 +19,19 @@ On macOS or Linux:
 ```sh
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -r requirements.txt
-python main.py
+python -m pip install --upgrade pip
+python -m pip install -e .
+openspotter-control
 ```
 
-The equivalent package entry point is `python -m app.main_v3`.
+`python main.py` and `python -m app` remain equivalent source launchers. See
+[DEPLOYMENT.md](DEPLOYMENT.md) for wheels, standalone builds, writable runtime
+locations, and migration from an older checkout.
 
 ## Validate
 
 ```powershell
+python -m pip install -e ".[test]"
 python -m compileall -q app
 python -m unittest discover -s tests -v
 ```
@@ -35,7 +40,12 @@ Launch the GUI after changes to appearance, interaction, paths, images, or workf
 
 ## Runtime logs
 
-Each application run writes to `logs/openspotter-control.log`. The file records startup state, effective global and recipe options, workflow/profile changes, generation choices, output paths, fallback defaults, and failures. Logs rotate at 5 MB with five backups, and credential-like values are redacted.
+Each application run writes `openspotter-control.log` under the active runtime
+root's `logs` directory. Source checkouts keep the historical local path;
+installed and frozen builds use per-user writable storage. The file records
+startup state, effective global and recipe options, workflow/profile changes,
+generation choices, output paths, fallback defaults, and failures. Logs rotate
+at 5 MB with five backups, and credential-like values are redacted.
 
 The default level is `INFO`. Set `OPENSPOTTER_LOG_LEVEL=DEBUG` before launching to include detailed workflow-trigger decisions:
 
@@ -56,7 +66,7 @@ The main workspace provides:
 - a TCP-relative geometry preview;
 - JSON profile loading;
 - a runtime G-code workflow editor;
-- atomic grid and spiral G-code generation;
+- atomic plugin-driven G-code generation (grid and spiral are built in);
 - Moonraker connection state, virtual-SD Start/Pause/Resume/Cancel, HTTP emergency stop, guarded XYZ jog, safe full home, live needle Z trim, and a read/queued G-code cursor.
 
 ## Persisted data
@@ -64,20 +74,21 @@ The main workspace provides:
 | Data | Location | Behavior |
 | --- | --- | --- |
 | Global and recipe defaults | `config/config_*.json` | Loaded at startup and updated through **SAVE DEFAULTS**. |
-| Grid/spiral counts | `config/config_states.json` | Controls tabs restored at startup. |
+| Pattern counts | `config/config_states.json` | Schema-version 2 registered-plugin counts, with legacy built-in keys accepted. |
 | Active workflow | `config/config_gcode_workflow.json` | Validated and saved explicitly in the workflow editor. |
 | Preview objects and links | `config/config_visual_objects.json` | Saved independently; geometry never feeds the planner directly. |
 | Moonraker example | `config/config_moonraker.example.json` | Key-free connection example. |
 | Local Moonraker settings | `config/config_moonraker.json` | Created by **CONFIG**, ignored by Git, and may contain an API key. |
-| Job snapshot | `*_settings.json` beside output | Reproducible schema-version 2 generation profile. |
+| Job snapshot | `*_settings.json` beside output | Reproducible schema-version 3 plugin profile with legacy built-in arrays. |
 
 ## Generate G-code
 
-Select **GENERATE G-CODE** after adding at least one grid or spiral recipe. The chosen path is a base path:
+Select **GENERATE G-CODE** after adding at least one pattern recipe. The chosen path is a base path:
 
-- grid recipes produce `<base>_grid.gcode`;
-- spiral recipes produce `<base>_spiral.gcode`;
-- when both exist, both files are created;
+- every non-empty application plugin produces `<base>_<plugin-id>.gcode`;
+- the built-in examples are `<base>_grid.gcode` and
+  `<base>_spiral.gcode`;
+- when several plugin workspaces contain recipes, each produces its own file;
 - every G-code file receives a matching `<job>_settings.json` sidecar.
 
 Profiles contain global settings, the recipes for that job type, derived runtime values, and the exact effective workflow. Writes are atomic. The dialog starts in `output/gcodes`; this directory is ignored runtime storage and contains no maintained examples.
@@ -85,7 +96,7 @@ Profiles contain global settings, the recipes for that job type, derived runtime
 **LOAD PROFILE** accepts JSON profiles only. Loading a profile:
 
 1. validates the document structure;
-2. replaces all current grid and spiral tabs with the saved recipes;
+2. replaces all registered pattern workspaces with the saved recipes;
 3. restores global values;
 4. if `workflow` is present, validates it and overwrites the active `config/config_gcode_workflow.json`.
 
@@ -100,7 +111,7 @@ Deploy the current `hardware/klipper/config/hardware.cfg`, `remote_control.cfg`,
 **START CURRENT RECIPE** follows this contract:
 
 1. require locked machine parameters and a connected, ready, idle Klippy state;
-2. capture an immutable grid or spiral snapshot on the Tk thread;
+2. ask the selected plugin to capture immutable recipes on the Tk thread;
 3. reject invalid text, unbounded pattern/maintenance work, or non-finite inputs;
 4. generate and hash the exact artifact in a worker, using compiled workflow expressions;
 5. compare rendered XYZ targets plus saved TCP/live-Z offsets with live axis limits;
@@ -134,7 +145,10 @@ The Python planner retains numeric state and the physical lifecycle: start, refi
 
 Variables are namespaced by global, grid, cleaning, washing, spiral, container, runtime, or custom scope. Grid-only and spiral-only values on shared events should be guarded with a condition such as `runtime.job.kind == 'grid'`. `custom.syringe_mm_per_ul` and `custom.spiral_resolution_radians` are required planner inputs and must remain positive.
 
-Application generation and workflow events cover grid and spiral jobs only. Startup needle calibration and hardware TCP calibration remain separate safety workflows.
+Grid and spiral are the shipped pattern plugins. Compatible installed plugins
+may add workspaces, workflow events, canvas previews, saved generation, and
+direct-run capture/generation through plugin API 1. Startup needle calibration
+and hardware TCP calibration remain separate safety workflows.
 
 ## TCP coordinate preview
 
@@ -179,10 +193,21 @@ The workflow does not run `TCPSTART` and does not automatically load or park the
 ## Layout
 
 - `main.py`: stable launcher.
-- `app`: UI, planner, compiled workflow renderer, generation, preview, Moonraker runtime/controller, and plugins.
+- `app/core`: reusable contracts and services for plugins, schemas, storage,
+  canvas previews, workflow composition, and shared G-code lifecycle.
+- `app/plugins`: built-in grid and spiral pattern packages.
+- `app`: generic Tk shell, compiled workflow renderer, runtime artifacts, and
+  Moonraker runtime/controller.
 - `config`: defaults and persisted application state.
 - `assets/images`: current static GUI images.
 - `tests`: planner, workflow, generation, visual-object, and hardware-config checks.
 - `hardware/klipper`: active printer configuration and custom TCP module.
 - `output/gcodes`: ignored runtime output.
+- [DEPLOYMENT.md](DEPLOYMENT.md): source, wheel, standalone, and runtime-data deployment.
+- [VERSIONING.md](VERSIONING.md): application, schema, and firmware compatibility versions.
+- [CHANGELOG.md](CHANGELOG.md): user-visible release history.
+- [ARCHITECTURE.md](ARCHITECTURE.md): core/plugin boundaries, runtime layers,
+  dependency rules, and migration status.
+- [PLUGIN_DEVELOPMENT.md](PLUGIN_DEVELOPMENT.md): installed entry points and
+  desktop plugin hooks.
 - [Spotter_Control_Dev.md](Spotter_Control_Dev.md): source-level developer map.

@@ -3,18 +3,18 @@ Centralized input configuration schema.
 Single source of truth for GUI + JSON.
 """
 
-from dataclasses import dataclass
-from typing import Any, List
+from typing import List
+
+from .core.schema import Field
+from .plugins.grid.fields import (
+    CLEANING_FIELDS,
+    GRID_FIELDS,
+    WASHING_FIELDS,
+)
+from .plugins.spiral.fields import SPIRAL_FIELDS
 
 
 # ========== Field Definitions ==========
-@dataclass(frozen=True)
-class Field:
-    key: str
-    label: str
-    unit: str
-    default: Any = 0.0
-    tab: str = ""
 # ------------------------------------------------------------------
 
 GLOBAL_FIELDS: List[Field] = [
@@ -26,7 +26,9 @@ GLOBAL_FIELDS: List[Field] = [
     Field("acceptance_square_x", "Acceptance Square X", "mm", tab="Geometry"),
     Field("acceptance_square_y", "Acceptance Square Y", "mm", tab="Geometry"),
     Field("mesh_points", "Mesh Points (3 to 10)", "int", default=3, tab="Geometry"),
-    Field("max_grid_count", "Maximum Grid Count", "int", default=6, tab="Geometry"),
+    # The persisted key predates the plugin architecture; the operator-facing
+    # label reflects that the limit now applies to every pattern workspace.
+    Field("max_grid_count", "Maximum Pattern Count", "int", default=6, tab="Geometry"),
     Field("base_square_x", "Base Square X", "mm", tab="Geometry"),
     Field("base_square_y", "Base Square Y", "mm", tab="Geometry"),
 
@@ -81,61 +83,11 @@ GLOBAL_FIELDS: List[Field] = [
 ]
 
 
-GRID_FIELDS: List[Field] = [
-    Field("rows", "Set rows", "int"),
-    Field("cols", "Set columns", "int"),
-    Field("pitch_x", "X step size", "mm"),
-    Field("pitch_y", "Y step size", "mm"),
-    Field("dispense_vol", "Dispense Volume", "uL"),
-    Field("row_add_volume", "Row Add Volume", "uL"),
-    Field("loading_from", "Loading from (1-6)", "int", default=1),
-    Field("leftovers_into", "Leftovers into (1-6)", "int"),
-    Field("z_contact", "Needle-Substrate Distance", "mm"),
-    Field("droplet_forming_time", "Droplet forming time", "s"),
-    Field("grid_offset_x", "Grid offset X", "mm"),
-    Field("grid_offset_y", "Grid offset Y", "mm"),
-]
-
-# Fields specific to spiral plugin; keys must match plugin expected params
-SPIRAL_FIELDS = [
-    Field('center_x', 'Center X (mm)', unit='mm', default=0.0),
-    Field('center_y', 'Center Y (mm)', unit='mm', default=0.0),
-    Field('start_radius', 'Start Radius (mm)', unit='mm', default=0.0),
-    Field('turns', 'Turns', unit='float', default=5.0),
-    Field('num_starts', 'Starts', unit='int', default=1),
-    Field('spacing_mm', 'Spacing (mm)', unit='mm', default=1.5),
-    Field('dispense_vol', 'Dispense uL', unit='uL', default=0.003),
-    Field('spiral_mode', 'Spiral Mode', unit='str', default='drop'),
-    Field('interleave', 'Interleave Starts', unit='bool', default=False),
-    Field('loading_from', 'Loading from (1-6)', unit='int', default=1),
-    Field('leftovers_into', 'Leftovers into (1-6)', unit='int', default=1),
-    Field('z_contact', 'Needle-Substrate Distance', unit='mm', default=0.01),
-    Field('droplet_forming_time', 'Droplet forming time', unit='s', default=0.5),
-]
-
-
-CLEANING_FIELDS: List[Field] = [
-    Field("rows_cleaning", "Set rows", "int"),
-    Field("cols_cleaning", "Set columns", "int"),
-    Field("pitch_x_cleaning", "X step size", "mm"),
-    Field("pitch_y_cleaning", "Y step size", "mm"),
-    Field("dispense_vol_cleaning", "Dispense volume cleaning", "uL"),
-    Field("droplet_forming_time_cleaning", "Droplet forming time", "s", default=0.5),
-    Field("grid_offset_x_cleaning", "Grid offset X", "mm"),
-    Field("grid_offset_y_cleaning", "Grid offset Y", "mm"),
-    Field("x_relative_increase", "X Relative Increase", "mm", default=0.0),
-    Field("y_relative_increase", "Y Relative Increase", "mm", default=0.0),
-    Field("spots_before_cleaning", "Spots before cleaning", "int"),
-    Field("final_rinse_cycles", "Final Rinse Cycles", "int", default=1),
-]
-
-
-WASHING_FIELDS: List[Field] = [
-    Field("washing_depth", "Washing Depth", "mm"),
-    Field("washing_speed", "Washing Speed", "mm/s"),
-    Field("washing_x_pos", "Washing X position", "mm"),
-    Field("washing_y_pos", "Washing Y position", "mm"),
-    Field("washing_line_lenght", "Washing line lenght", "mm"),
-    Field("washing_after_x_spots", "Washing After X Spots", "int"),
-    Field("washing_cycles", "Washing Cycles", "int"),
+__all__ = [
+    "CLEANING_FIELDS",
+    "Field",
+    "GLOBAL_FIELDS",
+    "GRID_FIELDS",
+    "SPIRAL_FIELDS",
+    "WASHING_FIELDS",
 ]

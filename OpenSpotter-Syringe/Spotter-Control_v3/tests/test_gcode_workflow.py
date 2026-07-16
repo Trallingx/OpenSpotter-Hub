@@ -18,6 +18,7 @@ from app.gcode_workflow import (
     render_preview,
     validate_workflow,
 )
+from app.paths import RESOURCE_CONFIG_DIR, WORKFLOW_CONFIG
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
@@ -73,6 +74,27 @@ def custom_variable(name, *, value=None, expression=None, variable_type="number"
 
 
 class DefaultWorkflowTests(unittest.TestCase):
+    def test_packaged_template_and_writable_runtime_paths_are_distinct(self):
+        self.assertEqual(
+            workflow_module.SHIPPED_WORKFLOW_PATH,
+            RESOURCE_CONFIG_DIR / "config_gcode_workflow.json",
+        )
+        self.assertEqual(workflow_module.DEFAULT_WORKFLOW_PATH, WORKFLOW_CONFIG)
+        self.assertEqual(WorkflowStore().path, WORKFLOW_CONFIG)
+
+        with mock.patch.object(
+            workflow_module,
+            "load_workflow",
+            return_value={"source": "packaged"},
+        ) as load_workflow:
+            self.assertEqual(
+                workflow_module.default_workflow(),
+                {"source": "packaged"},
+            )
+        load_workflow.assert_called_once_with(
+            workflow_module.SHIPPED_WORKFLOW_PATH
+        )
+
     def test_default_workflow_validates_and_exposes_five_ordered_blocks(self):
         workflow = validate_workflow(default_workflow())
 
@@ -508,7 +530,9 @@ class HardcodedMachineCommandGuardTests(unittest.TestCase):
             PROJECT_DIR / "app" / module_name
             for module_name in generation_modules
         ]
-        source_paths.extend(sorted((PROJECT_DIR / "app" / "plugins").glob("*.py")))
+        source_paths.extend(
+            sorted((PROJECT_DIR / "app" / "plugins").rglob("*.py"))
+        )
 
         violations = []
         for source_path in source_paths:
