@@ -57,6 +57,12 @@ class RuntimeJobTests(unittest.TestCase):
                 "OPENSPOTTER_SET_PROMPT PROMPT=20",
                 artifact.path.read_text(encoding="utf-8"),
             )
+            commands = [
+                line.split(";", 1)[0].strip().upper()
+                for line in artifact.path.read_text(encoding="utf-8").splitlines()
+                if line.split(";", 1)[0].strip()
+            ]
+            self.assertEqual(commands.count("HOMING"), 1)
 
             file_position = artifact.line_offsets[-1]
             current, context = artifact.context_for_file_position(file_position)

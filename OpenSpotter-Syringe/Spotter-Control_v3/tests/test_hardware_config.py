@@ -207,7 +207,6 @@ class HardwareConfigGraphTests(unittest.TestCase):
             config_path.read_text(encoding="utf-8") for config_path in config_paths
         )
 
-        self.assertNotIn("mainsails.cfg", active_text)
         self.assertNotIn("start_end.cfg", active_text)
         self.assertNotRegex(active_text, r"\b(?:SYRINGE_PRIME|RETRACT_SYRINGE)\b")
 
@@ -215,14 +214,14 @@ class HardwareConfigGraphTests(unittest.TestCase):
         remote_text = (CONFIG_DIR / "remote_control.cfg").read_text(encoding="utf-8")
 
         contract = re.search(
-            r"(?ms)^\[gcode_macro OPENSPOTTER_CONTRACT_V3\]\s*$.*?(?=^\[|\Z)",
+            r"(?ms)^\[gcode_macro OPENSPOTTER_CONTRACT_V4\]\s*$.*?(?=^\[|\Z)",
             remote_text,
         )
         self.assertIsNotNone(contract)
         self.assertNotIn("[gcode_macro OPENSPOTTER_CONTRACT_V2]", remote_text)
         self.assertNotIn("variable_contract_version", remote_text)
         self.assertNotIn("SET_GCODE_VARIABLE", contract.group(0))
-        self.assertIn("remote contract=v3", remote_text)
+        self.assertIn("remote contract=v4", remote_text)
 
         jog = re.search(
             r"(?ms)^\[gcode_macro OPENSPOTTER_JOG\]\s*$.*?(?=^\[|\Z)",
@@ -288,175 +287,35 @@ class HardwareConfigGraphTests(unittest.TestCase):
             jog_text.index("RESTORE_GCODE_STATE NAME=_openspotter_jog_state"),
         )
 
-    def test_manual_and_job_homing_use_reviewed_sensorless_sequences(self):
+    def test_remote_control_defers_homing_to_operator_macro(self):
         remote_text = (CONFIG_DIR / "remote_control.cfg").read_text(encoding="utf-8")
 
-        home = re.search(
-            r"(?ms)^\[gcode_macro OPENSPOTTER_HOME\]\s*$.*?(?=^\[|\Z)",
+        self.assertIn("[gcode_macro OPENSPOTTER_CONTRACT_V4]", remote_text)
+        self.assertIn("[gcode_macro OPENSPOTTER_JOG]", remote_text)
+        self.assertNotRegex(
             remote_text,
+            r"(?m)^\[gcode_macro HOMING\]\s*$",
         )
-        self.assertIsNotNone(home)
-        home_text = home.group(0)
-        self.assertIn("printer.virtual_sdcard.is_active", home_text)
-        self.assertIn(
-            "print_state in ['printing', 'paused'] or virtual_sd_active",
-            home_text,
-        )
-        self.assertLess(
-            home_text.index("_OPENSPOTTER_VALIDATE_SENSORLESS_HOME"),
-            home_text.index("_OPENSPOTTER_HOME_SEQUENCE"),
-        )
+        for retired_macro in (
+            "OPENSPOTTER_HOME",
+            "OPENSPOTTER_JOB_HOME",
+            "OPENSPOTTER_JOB_REHOME_Z",
+            "_OPENSPOTTER_RELEASE_AXIS",
+            "_OPENSPOTTER_MOVE_PHYSICAL_Z",
+            "_OPENSPOTTER_VALIDATE_SENSORLESS_HOME",
+            "_OPENSPOTTER_SET_Z_HOME_SGT",
+            "_OPENSPOTTER_HOME_SEQUENCE",
+            "_OPENSPOTTER_JOB_REHOME_Z_SEQUENCE",
+        ):
+            with self.subTest(retired_macro=retired_macro):
+                self.assertNotIn(
+                    f"[gcode_macro {retired_macro}]",
+                    remote_text,
+                )
+        self.assertNotRegex(remote_text, r"(?m)^\s*G28(?:\s|$)")
+        self.assertNotIn("SET_TMC_FIELD", remote_text)
 
-        validator = re.search(
-            r"(?ms)^\[gcode_macro _OPENSPOTTER_VALIDATE_SENSORLESS_HOME\]\s*$.*?(?=^\[|\Z)",
-            remote_text,
-        )
-        self.assertIsNotNone(validator)
-        validator_text = validator.group(0)
-        for axis in ("x", "y", "z"):
-            self.assertIn(
-                f"printer.configfile.settings['stepper_{axis}']",
-                validator_text,
-            )
-        self.assertIn("homing_retract_dist=0 on X, Y, and Z", validator_text)
-        self.assertIn("{% set commissioned_z_home_sgt = 10 %}", validator_text)
-        self.assertIn(
-            "printer.configfile.settings['tmc2130 stepper_z']",
-            validator_text,
-        )
-        self.assertIn(
-            "tmc_z.driver_sgt|int != commissioned_z_home_sgt",
-            validator_text,
-        )
-
-        z_sgt = re.search(
-            r"(?ms)^\[gcode_macro _OPENSPOTTER_SET_Z_HOME_SGT\]\s*$.*?(?=^\[|\Z)",
-            remote_text,
-        )
-        self.assertIsNotNone(z_sgt)
-        self.assertIn(
-            "printer.configfile.settings['tmc2130 stepper_z'].driver_sgt",
-            z_sgt.group(0),
-        )
-        self.assertIn(
-            "SET_TMC_FIELD STEPPER=stepper_z FIELD=SGT VALUE={z_home_sgt}",
-            z_sgt.group(0),
-        )
-
-        tmc_text = (CONFIG_DIR / "tmc2130.cfg").read_text(encoding="utf-8")
-        tmc_z = re.search(
-            r"(?ms)^\[tmc2130 stepper_z\]\s*$.*?(?=^\[|\Z)",
-            tmc_text,
-        )
-        self.assertIsNotNone(tmc_z)
-        self.assertRegex(tmc_z.group(0), r"(?m)^driver_SGT:\s*10\s*$")
-
-        sequence = re.search(
-            r"(?ms)^\[gcode_macro _OPENSPOTTER_HOME_SEQUENCE\]\s*$.*?(?=^\[|\Z)",
-            remote_text,
-        )
-        self.assertIsNotNone(sequence)
-        sequence_text = sequence.group(0)
-        self.assertNotRegex(sequence_text, r"(?m)^\s*G9[01]\s*$")
-        self.assertNotIn("variable_settle_ms", sequence_text)
-        self.assertNotIn("variable_release_distance", sequence_text)
-        self.assertIn("{% set commissioned_clearance_z = 35.0 %}", sequence_text)
-        self.assertIn("printer.save_variables.variables.movement_dead_zones", sequence_text)
-        self.assertIn("zone.enabled|default(1)|int(none)", sequence_text)
-        self.assertIn("zone_enabled == 1", sequence_text)
-        self.assertIn(
-            "zone_clearance > required_clearance.value",
-            sequence_text,
-        )
-        self.assertIn("homing blocked by invalid saved dead zone", sequence_text)
-        self.assertIn("clearance_z >= required_clearance.value", sequence_text)
-        self.assertIn("commissioned minimum 35 mm", sequence_text)
-        self.assertEqual(sequence_text.count("G4 P{settle_ms}"), 3)
-        self.assertLess(
-            sequence_text.index("_OPENSPOTTER_SET_Z_HOME_SGT"),
-            sequence_text.index("G28 Z0"),
-        )
-        self.assertLess(sequence_text.index("BED_MESH_CLEAR"), sequence_text.index("G28 Z0"))
-        self.assertLess(sequence_text.index("G28 Z0"), sequence_text.index("AXIS=Z"))
-        self.assertLess(sequence_text.index("AXIS=Z"), sequence_text.index("G28 Y0"))
-        self.assertLess(sequence_text.index("G28 Y0"), sequence_text.index("AXIS=Y"))
-        self.assertLess(
-            sequence_text.index("AXIS=Y"),
-            sequence_text.index("_OPENSPOTTER_MOVE_PHYSICAL_Z"),
-        )
-        self.assertLess(
-            sequence_text.index("_OPENSPOTTER_MOVE_PHYSICAL_Z"),
-            sequence_text.index("G28 X0"),
-        )
-        self.assertLess(sequence_text.index("G28 X0"), sequence_text.index("AXIS=X"))
-        self.assertLess(sequence_text.index("AXIS=X"), sequence_text.rindex("M400"))
-
-        release = re.search(
-            r"(?ms)^\[gcode_macro _OPENSPOTTER_RELEASE_AXIS\]\s*$.*?(?=^\[|\Z)",
-            remote_text,
-        )
-        self.assertIsNotNone(release)
-        release_text = release.group(0)
-        self.assertNotRegex(release_text, r"(?m)^\s*G9[01]\s*$")
-        self.assertLess(
-            release_text.index("_CHECK_MOVE_SAFETY"),
-            release_text.index("SAVE_GCODE_STATE"),
-        )
-        self.assertLess(release_text.index("SAVE_GCODE_STATE"), release_text.index("G0.1 X{"))
-        self.assertLess(release_text.index("G0.1 X{"), release_text.index("M400"))
-        self.assertLess(release_text.index("M400"), release_text.index("RESTORE_GCODE_STATE"))
-
-        job_home = re.search(
-            r"(?ms)^\[gcode_macro OPENSPOTTER_JOB_HOME\]\s*$.*?(?=^\[|\Z)",
-            remote_text,
-        )
-        self.assertIsNotNone(job_home)
-        self.assertIn(
-            "not virtual_sd_active or print_state != 'printing'",
-            job_home.group(0),
-        )
-        self.assertIn("_OPENSPOTTER_VALIDATE_SENSORLESS_HOME", job_home.group(0))
-        self.assertIn("_OPENSPOTTER_HOME_SEQUENCE", job_home.group(0))
-
-        job_rehome = re.search(
-            r"(?ms)^\[gcode_macro OPENSPOTTER_JOB_REHOME_Z\]\s*$.*?(?=^\[|\Z)",
-            remote_text,
-        )
-        self.assertIsNotNone(job_rehome)
-        self.assertIn(
-            "not virtual_sd_active or print_state != 'printing'",
-            job_rehome.group(0),
-        )
-        self.assertIn("_OPENSPOTTER_VALIDATE_SENSORLESS_HOME", job_rehome.group(0))
-        self.assertIn("_OPENSPOTTER_JOB_REHOME_Z_SEQUENCE", job_rehome.group(0))
-
-        rehome_sequence = re.search(
-            r"(?ms)^\[gcode_macro _OPENSPOTTER_JOB_REHOME_Z_SEQUENCE\]\s*$.*?(?=^\[|\Z)",
-            remote_text,
-        )
-        self.assertIsNotNone(rehome_sequence)
-        rehome_text = rehome_sequence.group(0)
-        self.assertEqual(rehome_text.count("G4 P{settle_ms}"), 2)
-        self.assertEqual(len(re.findall(r"(?m)^\s*G28 Z0\s*$", rehome_text)), 2)
-        self.assertEqual(rehome_text.count("_OPENSPOTTER_RELEASE_AXIS AXIS=Z"), 2)
-        self.assertEqual(rehome_text.count("_OPENSPOTTER_SET_Z_HOME_SGT"), 2)
-        set_sgt_positions = [
-            match.start()
-            for match in re.finditer("_OPENSPOTTER_SET_Z_HOME_SGT", rehome_text)
-        ]
-        z_home_positions = [
-            match.start() for match in re.finditer(r"(?m)^\s*G28 Z0\s*$", rehome_text)
-        ]
-        self.assertTrue(
-            all(set_sgt < z_home for set_sgt, z_home in zip(set_sgt_positions, z_home_positions))
-        )
-        self.assertLess(rehome_text.index("BED_MESH_CLEAR"), rehome_text.index("G28 Z0"))
-        self.assertLess(
-            rehome_text.rindex("_OPENSPOTTER_RELEASE_AXIS AXIS=Z"),
-            rehome_text.rindex("M400"),
-        )
-
-    def test_default_workflow_routes_all_homing_through_job_macros(self):
+    def test_default_workflow_calls_one_operator_homing_macro(self):
         workflow = json.loads(
             (PROJECT_DIR / "config" / "config_gcode_workflow.json").read_text(
                 encoding="utf-8"
@@ -471,34 +330,36 @@ class HardwareConfigGraphTests(unittest.TestCase):
             if section["trigger"] == "job_start"
         )
         template = start_section["template"]
-        x_clearance = next(
-            variable
-            for variable in workflow["custom_variables"]
-            if variable["name"] == "x_homing_clearance_z"
-        )
+        custom_names = {
+            variable["name"] for variable in workflow["custom_variables"]
+        }
 
-        self.assertIn("OPENSPOTTER_JOB_HOME", template)
-        self.assertIn("OPENSPOTTER_JOB_REHOME_Z", template)
-        self.assertGreaterEqual(float(x_clearance["value"]), 35.0)
-        self.assertIn(
-            "X_CLEARANCE_Z={{custom.x_homing_clearance_z}}",
-            template,
+        self.assertEqual(
+            len(re.findall(r"(?m)^\s*HOMING\s*(?:;.*)?$", template)),
+            1,
         )
+        self.assertNotIn("x_homing_clearance_z", custom_names)
         self.assertNotRegex(template, r"(?m)^\s*G28(?:\s|$)")
         self.assertNotIn("SET_TMC_FIELD", template)
         self.assertNotIn("FIELD=SGT", template)
-        self.assertLess(
-            template.index("OPENSPOTTER_JOB_HOME"),
-            template.index("G0 Z{{global.probe_ram_height}}"),
-        )
-        self.assertLess(
-            template.index("G0 Z{{global.probe_return_height}}"),
-            template.index("OPENSPOTTER_JOB_REHOME_Z"),
+        self.assertNotIn("OPENSPOTTER_JOB_HOME", template)
+        self.assertNotIn("OPENSPOTTER_JOB_REHOME_Z", template)
+        self.assertNotIn("OPENSPOTTER_HOME", template)
+        self.assertNotIn("probe_ram_height", template)
+        self.assertNotIn("probe_return_height", template)
+        self.assertLess(template.index("HOMING"), template.index("MESH "))
+        self.assertRegex(
+            template,
+            r"(?ms)^\s*HOMING\s*$.*?^\s*G90(?:\s|;|$).*?^\s*G21(?:\s|;|$)",
         )
 
     def test_cleanup_clears_all_motion_transforms_and_cancel_uses_it(self):
         remote_text = (CONFIG_DIR / "remote_control.cfg").read_text(encoding="utf-8")
-        mainsail_text = (CONFIG_DIR / "mainsail.cfg").read_text(encoding="utf-8")
+        config_paths, _ = resolve_config_graph(ROOT_CONFIG)
+        active_text = "\n".join(
+            config_path.read_text(encoding="utf-8")
+            for config_path in config_paths
+        )
 
         cleanup = re.search(
             r"(?ms)^\[gcode_macro OPENSPOTTER_JOB_CLEANUP\]\s*$.*?(?=^\[|\Z)",
@@ -507,12 +368,13 @@ class HardwareConfigGraphTests(unittest.TestCase):
         self.assertIsNotNone(cleanup)
         self.assertIn("NEEDLE_TIP_OFFSETS_DISABLE", cleanup.group(0))
         self.assertIn("BED_MESH_CLEAR", cleanup.group(0))
-        self.assertIn("_OPENSPOTTER_SET_Z_HOME_SGT", cleanup.group(0))
+        self.assertNotIn("_OPENSPOTTER_SET_Z_HOME_SGT", cleanup.group(0))
+        self.assertNotIn("SET_TMC_FIELD", cleanup.group(0))
         self.assertNotRegex(cleanup.group(0), r"(?m)^\s*G[01](?:\s|$)")
 
         cancel = re.search(
             r"(?ms)^\[gcode_macro CANCEL_PRINT\]\s*$.*?(?=^\[|\Z)",
-            mainsail_text,
+            active_text,
         )
         self.assertIsNotNone(cancel)
         self.assertLess(

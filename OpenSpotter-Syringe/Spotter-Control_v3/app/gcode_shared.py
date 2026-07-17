@@ -95,7 +95,7 @@ def collect_common_generation_data(self):
     - speeds: movement_speed, decent_speed, adcent_speed, dispensing_speed, refilling_speed
     - syringe: max_syringe_vol, drop_extra_aspirate, max_syringe_mm, min_syringe_mm, priming_vol
     - z_heights: z_movement_pos_low, z_movement_pos_high
-    - probe_params: probe_ram_height, probe_return_height, calibration_height, probe_feed_rate, calibration_feed_rate
+    - probe_params: calibration_height, calibration_feed_rate
     - timing: row_start_wait, emptying_wait, rinse_aspiration_wait, rinse_final_wait, syringe_aspirate_wait, syringe_prime_wait
     - plate: present_plate_y, present_plate_speed
     """
@@ -141,10 +141,7 @@ def collect_common_generation_data(self):
         'z_movement_pos_low': float(entry_dict['z_movement_pos_low']),
         'z_movement_pos_high': float(entry_dict['z_movement_pos_high']),
         # Probe parameters (all defaults from input_configs.py GLOBAL_FIELDS)
-        'probe_ram_height': float(entry_dict['probe_ram_height']),
-        'probe_return_height': float(entry_dict['probe_return_height']),
         'calibration_height': float(entry_dict['calibration_height']),
-        'probe_feed_rate': float(entry_dict['probe_feed_rate']),
         'calibration_feed_rate': float(entry_dict['calibration_feed_rate']),
         # Timing parameters (all defaults from input_configs.py GLOBAL_FIELDS)
         'row_start_wait': float(entry_dict['row_start_wait']),

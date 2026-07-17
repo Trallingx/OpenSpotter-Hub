@@ -67,7 +67,7 @@ The main workspace provides:
 - JSON profile loading;
 - a runtime G-code workflow editor;
 - atomic plugin-driven G-code generation (grid and spiral are built in);
-- Moonraker connection state, virtual-SD Start/Pause/Resume/Cancel, HTTP emergency stop, guarded XYZ jog, safe full home, live needle Z trim, and a read/queued G-code cursor.
+- Moonraker connection state, virtual-SD Start/Pause/Resume/Cancel, HTTP emergency stop, guarded XYZ jog, an operator-owned `HOMING` action, live needle Z trim, and a read/queued G-code cursor.
 
 ## Persisted data
 
@@ -106,7 +106,7 @@ Treat profile loading as a workflow change, not only a form import.
 
 The right-side machine panel starts a background Moonraker runtime without blocking Tk. **CONFIG** edits the host, port, protocol, route prefix, and optional API key; **RETRY** restarts monitoring. The WebSocket is persistent, identified as a desktop client, and subscribes to printer, virtual-SD, position, prompt, saved calibration, and live-Z state. Commands queued before connection or lost before sending fail instead of replaying after reconnect. On a Pi Zero, a fixed IPv4 address can avoid Windows `.local`/mDNS lookup delays.
 
-Deploy the current `hardware/klipper/config/hardware.cfg`, `remote_control.cfg`, and `movement_safety.cfg` together, keep the current `config/config_gcode_workflow.json`, and restart Klipper. The app checks Klipper's advertised commands for the immutable `OPENSPOTTER_CONTRACT_V3` marker and its required manual/job macros, including `OPENSPOTTER_JOB_HOME` and `OPENSPOTTER_JOB_REHOME_Z`. Start, Home, jog, and related machine controls remain disabled when that contract is missing or stale.
+Deploy the current `hardware/klipper/config/hardware.cfg`, `remote_control.cfg`, and `movement_safety.cfg` together, keep the current `config/config_gcode_workflow.json`, preserve the operator-owned Klipper configuration that defines `HOMING`, and restart Klipper. The app checks Klipper's advertised commands for the immutable `OPENSPOTTER_CONTRACT_V4` marker and the single required homing macro `HOMING`. Start, Home, jog, and related machine controls remain disabled when that contract is missing or stale.
 
 **START CURRENT RECIPE** follows this contract:
 
@@ -123,7 +123,13 @@ The separate upload/start sequence deliberately avoids Moonraker’s optional up
 
 Pause/Resume and Stop control the active virtual-SD job. Stop invokes Klipper cancellation and the non-motion `OPENSPOTTER_JOB_CLEANUP` macro. **EMERGENCY STOP** bypasses the WebSocket command queue and posts directly to Moonraker’s authenticated `/printer/emergency_stop` endpoint with a short timeout.
 
-XYZ jog is available only while connected, ready, idle, inactive in virtual SD, and homed on all axes, with needle offsets disabled and bed mesh cleared. It calls the reviewed `OPENSPOTTER_JOG` firmware macro, which requires at least 30 mm/min and validates finite distance/feed values, axis-specific limits, physical toolhead bounds, and movement dead zones. Safe Home uses `OPENSPOTTER_HOME`: sensorless X/Y/Z must have `homing_retract_dist: 0`; each homing contact receives a 2-second StallGuard settle and a release move; X homing occurs only after physical Z reaches at least the commissioned 35 mm clearance and every enabled dead-zone clearance.
+XYZ jog is available only while connected, ready, idle, inactive in virtual SD, and homed on all axes, with needle offsets disabled and bed mesh cleared. It calls the reviewed `OPENSPOTTER_JOG` firmware macro, which requires at least 30 mm/min and validates finite distance/feed values, axis-specific limits, physical toolhead bounds, and movement dead zones.
+
+The UI Home action issues exactly one bare `HOMING` command, and the default workflow also contains exactly one bare `HOMING` command. The application does not define or inspect that macro's physical choreography. Define and commission it in operator-owned Klipper configuration outside `remote_control.cfg`.
+
+The V4 interface requires `HOMING` to be safe both when called from the idle UI and when called at the start of an active virtual-SD job. Before its first move it must either neutralize needle offsets and bed mesh or reject the call, it must preserve and restore relevant modal G-code state, and it must return with XYZ homed. Make `M400` its final executable command so all queued physical motion completes before the macro returns. `HOMING` is public to every authorized Moonraker client, so the firmware macro itself—not only this application's UI checks—must validate its preconditions.
+
+When a job artifact uses `MESH`, Start preflight already requires the saved BLTouch state to be `loaded`; the operator must also verify the tool physically before Start. `HOMING` is not relied upon to load or park the BLTouch.
 
 Live Z calls the transactional needle-offset macros only during an active job while offsets are enabled. Negative values move closer to the substrate; positive values move away. UI adjustments are live (`SAVE=0`) and are not persisted automatically.
 
@@ -131,7 +137,7 @@ The canvas adds an amber **LIVE REQUESTED TOOLHEAD** cross when Moonraker has su
 
 The G-code tab shows Moonraker’s `virtual_sdcard.file_position` mapped onto the exact local artifact. It is explicitly a virtual-SD read/queued cursor, not proof that physical motion has completed. The view is hidden if another filename is active. A response timeout or post-send disconnect is treated as an unknown printer-side outcome; normal controls remain interlocked until monitoring is reconnected, while Emergency Stop stays available.
 
-**MANUAL / CONSOLE** parses text before it can be sent. It accepts a small diagnostic allowlist plus `G90`, `G91`, and bounded `G0`/`G1` XYZ/F moves. Raw motion requires an explicit coordinate mode and feed in the same script, Klipper-native plain decimal words (no `=` or scientific notation), live bounds, homed XYZ, offsets and bed mesh off, no virtual-SD activity, a 30–6000 mm/min feed, and an estimated total duration no longer than 60 seconds. Unknown macros, raw homing, arcs, output/driver changes, safety mutations, and other bypass commands are blocked. `M112`/`EMERGENCY_STOP` is routed through Moonraker's HTTP emergency-stop endpoint rather than the queued G-code path. A partial script error, missing completion sentinel, E-stop, timeout, or disconnect latches the machine controls until the operator inspects the printer and reconnects monitoring.
+**MANUAL / CONSOLE** parses text before it can be sent. It accepts a small diagnostic allowlist plus `G90`, `G91`, and bounded `G0`/`G1` XYZ/F moves. Raw motion requires an explicit coordinate mode and feed in the same script, Klipper-native plain decimal words (no `=` or scientific notation), live bounds, homed XYZ, offsets and bed mesh off, no virtual-SD activity, a 30–6000 mm/min feed, and an estimated total duration no longer than 60 seconds. The operator-owned `HOMING` macro is accepted only as a standalone action; unknown macros, raw `G28` homing, arcs, output/driver changes, safety mutations, and other bypass commands are blocked. `M112`/`EMERGENCY_STOP` is routed through Moonraker's HTTP emergency-stop endpoint rather than the queued G-code path. A partial script error, missing completion sentinel, E-stop, timeout, or disconnect latches the machine controls until the operator inspects the printer and reconnects monitoring.
 
 Preflight is not a complete interpreter for arbitrary custom macros or raw G-code. Review the exact artifact and perform an elevated, fluid-free dry run after changing workflows, profiles, fixtures, or firmware. The supplied Moonraker sample trusts localhost only; explicitly allow just the control PC/isolated subnet and firewall port 7125.
 
@@ -176,7 +182,7 @@ Unlinked object values remain annotations and never enter generated commands, ho
 
 ## Hardware boundary
 
-The supplied application workflow disables needle offsets for homing/mesh, then enables them after `MESH`, and disables them at job end. When enabled, the Klipper wrapper applies:
+The supplied application workflow disables needle offsets before `HOMING` and `MESH`, then enables them after `MESH`, and disables them at job end. When enabled, the Klipper wrapper applies:
 
 ```text
 machine X = commanded X + tcp_offset_x

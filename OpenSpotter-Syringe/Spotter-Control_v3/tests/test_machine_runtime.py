@@ -61,11 +61,9 @@ class FakeWebSocket:
             "G28": "Home",
             "NEEDLE_TIP_OFFSETS_DISABLE": "Disable offsets",
             "NEEDLE_TIP_OFFSETS_ENABLE": "Enable offsets",
-            "OPENSPOTTER_CONTRACT_V3": "Contract marker",
-            "OPENSPOTTER_HOME": "Safe home",
+            "HOMING": "Operator homing",
+            "OPENSPOTTER_CONTRACT_V4": "Contract marker",
             "OPENSPOTTER_JOB_CLEANUP": "Cleanup",
-            "OPENSPOTTER_JOB_HOME": "Job home",
-            "OPENSPOTTER_JOB_REHOME_Z": "Job Z rehome",
             "OPENSPOTTER_JOG": "Guarded jog",
             "OPENSPOTTER_SET_PROMPT": "Set prompt",
             "RESET_NEEDLE_SURFACE_OFFSET": "Reset live Z",
@@ -524,7 +522,7 @@ class MoonrakerRuntimeTests(unittest.TestCase):
             wait_for(lambda: runtime.connected)
             websocket = session.websockets[0]
             self.assertIn(
-                "OPENSPOTTER_CONTRACT_V3",
+                "OPENSPOTTER_CONTRACT_V4",
                 runtime.state_snapshot().objects[
                     "_openspotter_capabilities"
                 ]["gcode_commands"],

@@ -16,6 +16,7 @@ class MachineControlPanelTests(unittest.TestCase):
         self.root.update_idletasks()
         self.panel = MachineControlPanel(self.root)
         self.root.update_idletasks()
+        self.assertEqual(str(self.panel.home_button.cget("text")), "RUN HOMING")
 
     def tearDown(self):
         if hasattr(self, "root") and self.root.winfo_exists():
@@ -67,7 +68,7 @@ class MachineControlPanelTests(unittest.TestCase):
             offsets_enabled=True,
             operation_busy=True,
             runtime_started=True,
-            gcode_commands=("OPENSPOTTER_HOME", "OPENSPOTTER_JOG"),
+            gcode_commands=("HOMING", "OPENSPOTTER_JOG"),
             remote_controls_ready=True,
         )
 
@@ -100,7 +101,7 @@ class MachineControlPanelTests(unittest.TestCase):
             offsets_enabled=False,
             operation_busy=False,
             runtime_started=True,
-            gcode_commands=("OPENSPOTTER_HOME", "OPENSPOTTER_JOG"),
+            gcode_commands=("HOMING", "OPENSPOTTER_JOG"),
             remote_controls_ready=True,
         )
         self.assertEqual(str(self.panel.home_button.cget("state")), "normal")
@@ -114,7 +115,7 @@ class MachineControlPanelTests(unittest.TestCase):
             offsets_enabled=True,
             operation_busy=False,
             runtime_started=True,
-            gcode_commands=("OPENSPOTTER_HOME", "OPENSPOTTER_JOG"),
+            gcode_commands=("HOMING", "OPENSPOTTER_JOG"),
             remote_controls_ready=True,
         )
         self.assertEqual(str(self.panel.home_button.cget("state")), "normal")
@@ -129,7 +130,7 @@ class MachineControlPanelTests(unittest.TestCase):
             "offsets_enabled": False,
             "operation_busy": False,
             "runtime_started": True,
-            "gcode_commands": ("OPENSPOTTER_HOME", "OPENSPOTTER_JOG"),
+            "gcode_commands": ("HOMING", "OPENSPOTTER_JOG"),
             "remote_controls_ready": True,
         }
 

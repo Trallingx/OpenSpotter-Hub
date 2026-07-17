@@ -20,14 +20,6 @@
       "value": 0.5
     },
     {
-      "name": "x_homing_clearance_z",
-      "label": "X homing clearance Z",
-      "type": "number",
-      "unit": "mm",
-      "description": "Safe Z height used before homing X. Firmware enforces at least 35 mm and the highest enabled dead-zone clearance.",
-      "value": 35.0
-    },
-    {
       "name": "spiral_resolution_radians",
       "label": "Spiral angular resolution",
       "type": "number",
@@ -47,7 +39,7 @@
           "id": "start_job",
           "name": "Machine setup and needle calibration",
           "trigger": "job_start",
-          "template": "\nG90 ;use absolute coordinates\nG21 ;unit mm\nNEEDLE_TIP_OFFSETS_DISABLE ; Homing and mesh use machine/probe coordinates\n\n;Homing sequence\nM117 Gantry Align\nOPENSPOTTER_JOB_HOME X_CLEARANCE_Z={{custom.x_homing_clearance_z}} CLEARANCE_F={{global.adcent_speed}} ; Reviewed sensorless Z/Y/clearance/X home\nG0 X{{global.probe_x}} Y{{global.probe_y}} F{{global.movement_speed}} ; Go with Head to probe position\nG0 Z{{global.probe_ram_height}} F{{global.probe_feed_rate}} ; Ram into top\nG0 Z{{global.probe_return_height}} F{{global.probe_feed_rate}} ; Back down\nOPENSPOTTER_JOB_REHOME_Z ; Reviewed double-Z rehome with commissioned StallGuard sensitivity, settle, and release\nM117 Aligned\nMESH X_MIN={{acceptance.x_left:.3f}} X_MAX={{acceptance.x_right:.3f}} Y_MIN={{acceptance.y_bottom:.3f}} Y_MAX={{acceptance.y_top:.3f}} POINTS={{global.mesh_points}} ;Home Z with mesh bed leveling inside acceptance square\nNEEDLE_TIP_OFFSETS_ENABLE ; Apply saved TCP offsets plus live needle Z trim to normal moves\nG0 X{{global.probe_x}} Y{{global.probe_y}} F{{global.movement_speed}}; Go with probe above vacuum chuck\nHOME_SYRINGE\nDISPENSE MM=0\nG1 Z{{global.calibration_height}} F{{global.calibration_feed_rate}}\nOPENSPOTTER_SET_PROMPT PROMPT=20\nM117 Calibrate needle\nPAUSE\nOPENSPOTTER_SET_PROMPT PROMPT=0\nG0 Z{{global.z_movement_pos_high}} F{{global.adcent_speed}}\n"
+          "template": "\nG90 ;use absolute coordinates\nG21 ;unit mm\nNEEDLE_TIP_OFFSETS_DISABLE ; Homing and mesh use machine/probe coordinates\n\n; Operator-owned homing and alignment routine\nM117 Homing\nHOMING\nG90 ; Reassert workflow coordinate mode after opaque HOMING\nG21 ; Reassert workflow units after opaque HOMING\nM117 Homed\nMESH X_MIN={{acceptance.x_left:.3f}} X_MAX={{acceptance.x_right:.3f}} Y_MIN={{acceptance.y_bottom:.3f}} Y_MAX={{acceptance.y_top:.3f}} POINTS={{global.mesh_points}} ;Home Z with mesh bed leveling inside acceptance square\nNEEDLE_TIP_OFFSETS_ENABLE ; Apply saved TCP offsets plus live needle Z trim to normal moves\nG0 X{{global.probe_x}} Y{{global.probe_y}} F{{global.movement_speed}}; Go with probe above vacuum chuck\nHOME_SYRINGE\nDISPENSE MM=0\nG1 Z{{global.calibration_height}} F{{global.calibration_feed_rate}}\nOPENSPOTTER_SET_PROMPT PROMPT=20\nM117 Calibrate needle\nPAUSE\nOPENSPOTTER_SET_PROMPT PROMPT=0\nG0 Z{{global.z_movement_pos_high}} F{{global.adcent_speed}}\n"
         }
       ]
     },

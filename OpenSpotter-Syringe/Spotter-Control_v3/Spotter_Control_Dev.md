@@ -180,7 +180,11 @@ Tk inputs
 
 Uploads are intentionally separate from Start. Do not switch the UI path back to `upload_gcode(start=True)`: Moonraker can queue such uploads for later execution. Remote artifact names are content-addressed SHA-256 paths, so identical jobs overwrite/reuse the same remote file.
 
-Connection setup queries `printer.gcode.help`. The required remote-control capability set includes the immutable `OPENSPOTTER_CONTRACT_V3` marker and the reviewed manual/job macros, including `OPENSPOTTER_JOB_HOME` and `OPENSPOTTER_JOB_REHOME_Z`. Missing or stale firmware keeps direct machine controls interlocked. Prefer a fixed IPv4 address on latency-sensitive Pi Zero deployments when `.local`/mDNS resolution is slow.
+Connection setup queries `printer.gcode.help`. The required remote-control capability set includes the immutable `OPENSPOTTER_CONTRACT_V4` marker and one operator-owned Klipper macro named `HOMING`. Missing or stale firmware keeps direct machine controls interlocked. Prefer a fixed IPv4 address on latency-sensitive Pi Zero deployments when `.local`/mDNS resolution is slow.
+
+The UI Home action and the default workflow each issue exactly one bare `HOMING` command. The application deliberately does not define or inspect its physical choreography. The operator must commission that macro and keep it in machine-specific Klipper configuration outside `remote_control.cfg`.
+
+Contract V4 requires `HOMING` to support both an idle UI call and a call at the start of an active virtual-SD job. Before its first move it must neutralize needle offsets and bed mesh or reject execution, preserve and restore relevant modal G-code state, return with XYZ homed, and use `M400` as its final executable command. The macro is public to other authorized Moonraker clients, so its firmware implementation must validate its own preconditions instead of depending on desktop-only interlocks.
 
 Start preflight combines:
 
@@ -192,9 +196,11 @@ Start preflight combines:
 - `tcp_ready=True` and coordinate version 2 when needle offsets are enabled;
 - artifact filename matching for the read/queued viewer.
 
+For artifacts that use `MESH`, saved BLTouch state must already be `loaded` and the operator must verify the physical tool before Start. Neither Start preflight nor the generated `HOMING` call relies on the macro to load or park the BLTouch.
+
 The G-code cursor is based on `virtual_sdcard.file_position`, which is read/queued position. Never describe it as physically executed motion.
 
-`app/manual_gcode.py` performs bounded, immutable parsing before the controller may send console text: 16 KiB, 100 physical lines, and 50 executable commands. The normal console allowlist is diagnostic queries plus explicit `G90`/`G91` and `G0`/`G1` XYZ/F motion. The controller requires homed XYZ, no active virtual-SD job, offsets and bed mesh disabled, live physical/logical coordinates and bounds, explicit mode/feed, 30–6000 mm/min, and at most 60 seconds estimated motion/dwell. Unknown or safety-bypassing commands are blocked. Emergency input is accepted only as a standalone action and is routed to HTTP Emergency Stop. Normal scripts are wrapped in nonce response sentinels plus `M400`; an RPC error, printer error between sentinels, absent completion sentinel, timeout, disconnect, or E-stop latches the unknown-outcome interlock until inspection and reconnect.
+`app/manual_gcode.py` performs bounded, immutable parsing before the controller may send console text: 16 KiB, 100 physical lines, and 50 executable commands. The normal console allowlist is diagnostic queries plus explicit `G90`/`G91` and `G0`/`G1` XYZ/F motion; the operator-owned `HOMING` macro is accepted only as a standalone action. The controller requires homed XYZ, no active virtual-SD job, offsets and bed mesh disabled, live physical/logical coordinates and bounds, explicit mode/feed, 30–6000 mm/min, and at most 60 seconds estimated motion/dwell for manual raw motion. Unknown or safety-bypassing commands are blocked. Emergency input is accepted only as a standalone action and is routed to HTTP Emergency Stop. Normal scripts are wrapped in nonce response sentinels plus `M400`; an RPC error, printer error between sentinels, absent completion sentinel, timeout, disconnect, or E-stop latches the unknown-outcome interlock until inspection and reconnect.
 
 Variable metadata distinguishes event availability from job kind. Event-scoped values may only be used where supplied. Mode-specific values on shared events need a `runtime.job.kind` condition. The editor uses representative GUI values for preview; generation supplies planned runtime values.
 
@@ -204,7 +210,7 @@ geometry, saved generation, and direct-run recipes without a shell/controller
 branch. Startup needle calibration and hardware TCP calibration remain
 separate safety workflows rather than pattern plugins.
 
-`custom.syringe_mm_per_ul` and `custom.spiral_resolution_radians` are required positive planner inputs. Other default custom variables currently include priming speed and X-homing clearance.
+`custom.syringe_mm_per_ul` and `custom.spiral_resolution_radians` are required positive planner inputs. Other default custom variables currently include priming speed.
 
 ## Configuration and defaults
 
@@ -242,7 +248,7 @@ The custom Klipper source of truth is `hardware/klipper/config/scripts/tcp_calib
 
 When changing generated motion, review axis/syringe limits, the G0/G1 wrappers, raw G0.1/G1.1 uses, mesh assumptions, detachable-probe state, TCP readiness, and the effective workflow together.
 
-Treat `hardware.cfg`, `movement_safety.cfg`, `remote_control.cfg`, and `config/config_gcode_workflow.json` as one versioned motion-control set. The firmware contract v3 expects sensorless `homing_retract_dist: 0`, 2-second settle/release cycles, physical-Z clearance of at least 35 mm plus enabled dead-zone requirements, and job-only home/rehome macros used by the shipped workflow. Restart Klipper after deploying the Klipper files.
+Treat `hardware.cfg`, `movement_safety.cfg`, `remote_control.cfg`, and `config/config_gcode_workflow.json` as one versioned motion-control set. Firmware contract v4 requires `OPENSPOTTER_CONTRACT_V4` plus the operator-owned `HOMING` macro. The application provides no release, clearance, axis-order, or rehome layers around it; both the UI and shipped workflow call exactly `HOMING`. Keep the commissioned macro outside `remote_control.cfg`, end it with `M400`, preserve it during deployment, and restart Klipper after changing the Klipper files.
 
 ## Tests
 

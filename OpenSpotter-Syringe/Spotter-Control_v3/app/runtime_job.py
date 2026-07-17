@@ -217,7 +217,6 @@ def _validate_global(values: Mapping[str, Any]) -> None:
         "adcent_speed",
         "dispensing_speed",
         "refilling_speed",
-        "probe_feed_rate",
         "calibration_feed_rate",
         "present_plate_speed",
     ):

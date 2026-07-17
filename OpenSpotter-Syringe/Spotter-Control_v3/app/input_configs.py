@@ -67,8 +67,6 @@ GLOBAL_FIELDS: List[Field] = [
 
     Field("max_syringe_mm", "Max Syringe MM (Rinse)", "mm", default=50.0, tab="Utility"),
     Field("min_syringe_mm", "Min Syringe MM (Rinse)", "mm", default=0.0, tab="Utility"),
-    Field("probe_ram_height", "Probe Ram Height", "mm", default=110.0, tab="Utility"),
-    Field("probe_return_height", "Probe Return Height", "mm", default=105.0, tab="Utility"),
     Field("calibration_height", "Calibration Height", "mm", default=0.0, tab="Utility"),
     Field("present_plate_y", "Present Plate Y Position", "mm", default=170.0, tab="Utility"),
     Field("present_plate_speed", "Present Plate Speed", "mm/s", default=2000.0, tab="Utility"),
@@ -76,7 +74,6 @@ GLOBAL_FIELDS: List[Field] = [
     Field("emptying_wait", "Emptying Wait", "s", default=1.0, tab="Utility"),
     Field("rinse_aspiration_wait", "Rinse Aspiration Wait", "s", default=0.5, tab="Utility"),
     Field("rinse_final_wait", "Rinse Final Wait", "s", default=2.0, tab="Utility"),
-    Field("probe_feed_rate", "Probe Feed Rate", "mm/s", default=300.0, tab="Utility"),
     Field("calibration_feed_rate", "Calibration Feed Rate", "mm/s", default=300.0, tab="Utility"),
     Field("syringe_aspirate_wait", "Syringe Aspirate Wait", "s", default=2.0, tab="Utility"),
     Field("syringe_prime_wait", "Syringe Prime Wait", "s", default=2.0, tab="Utility"),

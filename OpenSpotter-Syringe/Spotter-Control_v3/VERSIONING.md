@@ -13,7 +13,7 @@ OpenSpotter uses separate versions for separate compatibility boundaries:
 | G-code workflow | schema `1` | Editable workflow document compatibility |
 | Visual objects | schema `2` | Canvas object and binding compatibility |
 | Moonraker connection settings | schema `1` | Local connection configuration compatibility |
-| Klipper desktop contract | `OPENSPOTTER_CONTRACT_V3` | Required remote-control macro set |
+| Klipper desktop contract | `OPENSPOTTER_CONTRACT_V4` | Required remote-control macro set plus operator-owned `HOMING` |
 | TCP coordinates | version `2` | Saved calibration sign/convention compatibility |
 
 Changing one axis does not silently change another. A package patch release may
