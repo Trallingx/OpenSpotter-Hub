@@ -312,7 +312,7 @@ class MachineControlPanel(tk.Frame):
         ).grid(row=2, column=0, sticky="w", padx=10, pady=(1, 5))
         self.home_button = tk.Button(
             card,
-            text="SAFE HOME XYZ",
+            text="RUN HOMING",
             command=lambda: self._invoke("home"),
             **button_options("secondary"),
         )
@@ -955,7 +955,7 @@ class MachineControlPanel(tk.Frame):
             and ready
             and idle
             and bool(remote_controls_ready)
-            and "OPENSPOTTER_HOME" in commands
+            and "HOMING" in commands
         )
         can_live_z = (
             connected

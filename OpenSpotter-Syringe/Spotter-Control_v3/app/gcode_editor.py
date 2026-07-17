@@ -10,7 +10,6 @@ from __future__ import annotations
 import copy
 import inspect
 import json
-import math
 import re
 import uuid
 from dataclasses import dataclass
@@ -25,6 +24,11 @@ try:
 except ImportError:  # pragma: no cover - supports direct module smoke tests
     from ui_theme import COLORS, FONTS, button_options, configure_ttk_styles, entry_options
 
+try:
+    from .core.workflow_preview import dispatch_workflow_preview
+except ImportError:  # pragma: no cover - supports direct module smoke tests
+    from core.workflow_preview import dispatch_workflow_preview
+
 
 _VARIABLE_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _BLOCK_ROLES = ("start", "loading", "printing", "cleaning", "end", "custom")
@@ -38,6 +42,16 @@ def _load_workflow_core():
     except ImportError:  # pragma: no cover - supports direct module smoke tests
         import gcode_workflow
     return gcode_workflow
+
+
+def _load_application_plugins():
+    """Discover desktop plugins lazily to keep editor imports cycle-free."""
+
+    try:
+        from .plugin_runtime import application_plugins
+    except ImportError:  # pragma: no cover - supports direct module smoke tests
+        from plugin_runtime import application_plugins
+    return application_plugins()
 
 
 def _new_id(prefix: str) -> str:
@@ -1438,189 +1452,27 @@ class GCodeWorkflowEditor(tk.Toplevel):
         trigger: str,
         workflow: Optional[Mapping[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Add a representative live event sample for editor previews.
+        """Compose a representative event through core and plugin hooks."""
 
-        Spot/refill/wash values do not exist until generation is planned.  The
-        editor derives a deterministic sample from the currently selected GUI
-        recipe so preview output and the variable browser remain useful instead
-        of showing neutral zeroes.
-        """
-        enriched = copy.deepcopy(dict(context))
+        staged_workflow = workflow or self.workflow
 
-        def number(path: str, default: float = 0.0) -> float:
-            try:
-                return float(_get_nested(enriched, path, default))
-            except (TypeError, ValueError):
-                return float(default)
-
-        def integer(path: str, default: int = 0) -> int:
-            try:
-                return int(float(_get_nested(enriched, path, default)))
-            except (TypeError, ValueError):
-                return int(default)
-
-        def put(path: str, value: Any) -> None:
-            _set_nested(enriched, path, value)
-
-        grid_spot_events = {
-            "grid_spot_move", "grid_row_start", "grid_spot_dispense"
-        }
-        cleaning_spot_events = {
-            "cleaning_spot_move", "cleaning_row_start", "cleaning_spot_dispense"
-        }
-        spiral_spot_events = {"spiral_drop", "spiral_continuous"}
-        washing_events = {"washing_start", "washing_cycle", "washing_end"}
-        rinse_events = {
-            "syringe_empty_start", "rinse_cycle", "rinse_midpoint", "syringe_empty_end"
-        }
-
-        if trigger.startswith("spiral_"):
-            job_kind = "spiral"
-        elif (
-            trigger.startswith("grid_")
-            or trigger.startswith("cleaning_")
-            or trigger.startswith("washing_")
-        ):
-            job_kind = "grid"
-        else:
-            job_kind = str(_get_nested(enriched, "runtime.job.kind", "grid"))
-        put("runtime.job.kind", job_kind)
-
-        # Resolve the staged conversion factor when possible, so changing it in
-        # the custom-variable dialog immediately changes representative spots.
-        mm_per_ul = 1.0
-        for definition in (workflow or self.workflow).get("custom_variables", []):
-            if definition.get("name") == "syringe_mm_per_ul":
-                literal = definition.get("value")
-                if isinstance(literal, (int, float)) and not isinstance(literal, bool):
-                    mm_per_ul = float(literal)
-                break
-        try:
-            preview_engine = self.backend.core.WorkflowEngine(
-                workflow or self.workflow,
-                enriched,
+        def resolve_custom_value(
+            name: str,
+            live_context: Mapping[str, Any],
+        ) -> Any:
+            engine = self.backend.core.WorkflowEngine(
+                staged_workflow,
+                live_context,
             )
-            mm_per_ul = float(preview_engine.custom_value("syringe_mm_per_ul"))
-            spiral_resolution = float(
-                preview_engine.custom_value("spiral_resolution_radians")
-            )
-        except Exception:
-            spiral_resolution = 0.08
+            return engine.custom_value(name)
 
-        anchor_x = number("global.x_cord_of_y_line") + number("global.tuning_offset_x")
-        anchor_y = number("global.y_cord_of_x_line") + number("global.tuning_offset_y")
-
-        if trigger in grid_spot_events:
-            volume_ul = number("grid.dispense_vol")
-            put("runtime.spot.index", 0)
-            put("runtime.spot.row", 0)
-            put("runtime.spot.column", 0)
-            put("runtime.spot.x", anchor_x + number("grid.grid_offset_x"))
-            put("runtime.spot.y", anchor_y + number("grid.grid_offset_y"))
-            put("runtime.spot.dispense_mm", volume_ul * mm_per_ul)
-            put("runtime.spot.is_row_start", True)
-        elif trigger in cleaning_spot_events:
-            volume_ul = number("cleaning.dispense_vol_cleaning")
-            put("runtime.spot.index", 0)
-            put("runtime.spot.row", 0)
-            put("runtime.spot.column", 0)
-            put("runtime.spot.x", anchor_x + number("cleaning.grid_offset_x_cleaning"))
-            put("runtime.spot.y", anchor_y + number("cleaning.grid_offset_y_cleaning"))
-            put("runtime.spot.dispense_mm", volume_ul * mm_per_ul)
-            put("runtime.spot.is_row_start", True)
-            put("cleaning.cycle", 0)
-        elif trigger in spiral_spot_events:
-            center_x = number("spiral.center_x")
-            center_y = number("spiral.center_y")
-            start_radius = max(0.0, number("spiral.start_radius"))
-            spacing = max(1e-9, number("spiral.spacing_mm", 1.5))
-            base_ul = max(0.0, number("spiral.dispense_vol"))
-            theta = 0.0
-            radius = start_radius
-            segment_length = 0.0
-            continuous = trigger == "spiral_continuous"
-            if continuous:
-                theta = max(1e-9, spiral_resolution)
-                radius = start_radius + spacing * theta / (2.0 * math.pi)
-                previous_x = center_x + start_radius
-                previous_y = center_y
-                current_x = center_x + radius * math.cos(theta)
-                current_y = center_y + radius * math.sin(theta)
-                segment_length = math.hypot(current_x - previous_x, current_y - previous_y)
-            else:
-                current_x = center_x + radius
-                current_y = center_y
-            volume_ul = max(base_ul, segment_length * base_ul) if continuous else base_ul
-            put("runtime.spot.index", 1 if continuous else 0)
-            put("runtime.spot.start_index", 0)
-            put("runtime.spot.x", current_x)
-            put("runtime.spot.y", current_y)
-            put("runtime.spot.dispense_ul", volume_ul)
-            put("runtime.spot.dispense_mm", volume_ul * mm_per_ul)
-            put("runtime.spot.segment_length", segment_length)
-            put("runtime.spot.theta", theta)
-            put("runtime.spot.radius", radius)
-            put("runtime.spot.continuous", continuous)
-
-        if trigger == "syringe_reload":
-            namespace = "spiral" if job_kind == "spiral" else "grid"
-            base_ul = max(0.0, number(f"{namespace}.dispense_vol"))
-            row_add_ul = max(0.0, number("grid.row_add_volume")) if namespace == "grid" else 0.0
-            rows = max(0, integer("grid.rows", 1)) if namespace == "grid" else 1
-            cols = max(0, integer("grid.cols", 1)) if namespace == "grid" else 1
-            print_ul = rows * cols * base_ul + max(0, rows - 1) * row_add_ul
-            cleaning_ul = (
-                max(0, integer("cleaning.rows_cleaning"))
-                * max(0, integer("cleaning.cols_cleaning"))
-                * max(0.0, number("cleaning.dispense_vol_cleaning"))
-                if namespace == "grid"
-                else 0.0
-            )
-            largest_ul = max(base_ul + row_add_ul, number("cleaning.dispense_vol_cleaning"))
-            reserve_ul = largest_ul * (1.0 + max(0.0, number("global.drop_extra_aspirate")))
-            cap_mm = max(0.0, number("global.max_syringe_vol")) * mm_per_ul
-            total_needed_mm = (print_ul + cleaning_ul + reserve_ul) * mm_per_ul
-            target_mm = min(total_needed_mm, cap_mm)
-            priming_mm = max(0.0, number("global.priming_vol")) * mm_per_ul
-            refill_values = {
-                "reason": "representative_preview",
-                "dynamic": total_needed_mm > cap_mm,
-                "container_id": integer("container.id"),
-                "fill_mm": target_mm + priming_mm,
-                "priming_mm": priming_mm,
-                "target_fill_mm": target_mm,
-                "target_fill_ul": target_mm / mm_per_ul if mm_per_ul > 0 else 0.0,
-                "remaining_spots_mm": print_ul * mm_per_ul,
-                "cleaning_mm": cleaning_ul * mm_per_ul,
-                "reserve_mm": reserve_ul * mm_per_ul,
-                "total_needed_mm": total_needed_mm,
-                "cap_mm": cap_mm,
-            }
-            for key, value in refill_values.items():
-                put(f"runtime.refill.{key}", value)
-
-        if trigger in washing_events:
-            wash_x = number("washing.washing_x_pos")
-            put("runtime.washing.cycle", 0)
-            put("runtime.washing.x_start", wash_x)
-            put("runtime.washing.x_end", wash_x + number("washing.washing_line_lenght"))
-
-        if trigger in rinse_events:
-            put("runtime.rinse.cycle", 1)
-            put("runtime.rinse.phase", 2 if trigger in {"rinse_midpoint", "syringe_empty_end"} else 1)
-            put("runtime.rinse.max_mm", number("global.max_syringe_mm"))
-            put("runtime.rinse.min_mm", number("global.min_syringe_mm"))
-
-        # Emptying events use the leftovers container, while reload uses the
-        # loading container supplied by the host application.
-        if trigger in rinse_events:
-            namespace = "spiral" if job_kind == "spiral" else "grid"
-            container_id = integer(f"{namespace}.leftovers_into", integer("container.id"))
-            put("container.id", container_id)
-            put("container.x", number(f"global.container{container_id}_x"))
-            put("container.y", number(f"global.container{container_id}_y"))
-            put("container.z", number(f"global.container{container_id}_z"))
-        return enriched
+        return dispatch_workflow_preview(
+            context,
+            trigger,
+            staged_workflow,
+            _load_application_plugins(),
+            resolve_custom_value,
+        )
 
     def _preview_trigger_changed(self, _event: Any = None) -> None:
         self._refresh_variables()

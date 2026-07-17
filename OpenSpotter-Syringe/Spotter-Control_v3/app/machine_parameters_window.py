@@ -5,7 +5,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
-from .grid import create_labels
+from .core.ui.forms import create_labels
 from .ui_theme import COLORS, FONTS, button_options
 
 

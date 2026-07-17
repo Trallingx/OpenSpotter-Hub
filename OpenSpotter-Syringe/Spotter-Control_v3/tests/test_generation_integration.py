@@ -151,6 +151,18 @@ class GenerationIntegrationTests(unittest.TestCase):
             self.assertNotIn("{{", grid_output + spiral_output)
             self.assertIn("NEEDLE_TIP_OFFSETS_ENABLE", grid_output)
             self.assertIn("NEEDLE_TIP_OFFSETS_DISABLE", grid_output)
+            for output in (grid_output, spiral_output):
+                command_names = [
+                    line.split(";", 1)[0].strip().upper().split(" ", 1)[0]
+                    for line in output.splitlines()
+                    if line.split(";", 1)[0].strip()
+                ]
+                self.assertEqual(command_names.count("HOMING"), 1)
+                self.assertNotIn("G28", command_names)
+                self.assertNotIn("SET_TMC_FIELD", command_names)
+                self.assertNotIn("OPENSPOTTER_HOME", command_names)
+                self.assertNotIn("OPENSPOTTER_JOB_HOME", command_names)
+                self.assertNotIn("OPENSPOTTER_JOB_REHOME_Z", command_names)
 
             grid_profile = json.loads(
                 (temp_path / "grid_job_settings.json").read_text(encoding="utf-8")
@@ -158,7 +170,11 @@ class GenerationIntegrationTests(unittest.TestCase):
             spiral_profile = json.loads(
                 (temp_path / "spiral_job_settings.json").read_text(encoding="utf-8")
             )
-            self.assertEqual(grid_profile["schema_version"], 2)
+            self.assertEqual(grid_profile["schema_version"], 3)
+            self.assertEqual(
+                grid_profile["patterns"][0]["plugin_id"],
+                "grid",
+            )
             self.assertEqual(grid_profile["grid_settings"][0]["grid_name"], "Integration Grid")
             self.assertEqual(
                 spiral_profile["spiral_settings"][0]["spiral_name"],

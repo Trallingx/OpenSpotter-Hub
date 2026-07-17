@@ -1,0 +1,91 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openspotter-control"
+dynamic = ["version"]
+description = "Desktop recipe editor, G-code generator, and Moonraker console for OpenSpotter-Syringe"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { file = "LICENSE.txt" }
+authors = [
+  { name = "OpenSpotter contributors" },
+]
+keywords = ["gcode", "klipper", "laboratory-automation", "moonraker", "tkinter"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Win32 (MS Windows)",
+  "Environment :: X11 Applications",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: MacOS",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering",
+]
+dependencies = [
+  "Pillow>=10.0",
+  "aiohttp==3.10.11",
+]
+
+[project.optional-dependencies]
+test = [
+  "Jinja2>=3.1,<4",
+]
+dev = [
+  "Jinja2>=3.1,<4",
+  "ruff>=0.6,<1",
+]
+build = [
+  "build>=1.2,<2",
+  "pyinstaller>=6.10,<7",
+]
+
+[project.gui-scripts]
+openspotter-control = "app.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/Trallingx/OpenSpotter-Hub"
+Issues = "https://github.com/Trallingx/OpenSpotter-Hub/issues"
+Repository = "https://github.com/Trallingx/OpenSpotter-Hub.git"
+
+[tool.setuptools]
+include-package-data = false
+zip-safe = false
+
+[tool.setuptools.dynamic]
+version = { attr = "app.version.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app", "app.*", "assets", "config"]
+
+[tool.setuptools.package-data]
+assets = [
+  "*.png",
+  "images/*.png",
+]
+config = [
+  "config_gcode_workflow.json",
+  "config_global.json",
+  "config_grid_1.json",
+  "config_grid_2.json",
+  "config_grid_3.json",
+  "config_grid_4.json",
+  "config_grid_5.json",
+  "config_grid_6.json",
+  "config_grid_7.json",
+  "config_grid_8.json",
+  "config_grid_9.json",
+  "config_moonraker.example.json",
+  "config_spiral_1.json",
+  "config_states.json",
+  "config_visual_objects.json",
+]

@@ -1,11 +1,28 @@
+"""Tk renderer for plugin-owned pattern previews and visual layout objects.
+
+Pattern plugins provide immutable primitives from :mod:`app.core.canvas`.
+This module owns only viewport transforms, theme-aware rendering, visual
+objects, and the live toolhead overlay.
+"""
+
 import math
 import tkinter as tk
 from collections.abc import Mapping
+from pathlib import Path
 
 from PIL import Image, ImageOps, ImageTk
-from .SpotterFunctions import build_containers, entries_to_dict
-from .input_configs import GLOBAL_FIELDS, GRID_FIELDS, CLEANING_FIELDS, WASHING_FIELDS, SPIRAL_FIELDS
-from .paths import PROJECT_DIR
+from .core.canvas import (
+    CanvasPreview,
+    CanvasPreviewContext,
+    CanvasPreviewProvider,
+    CanvasPreviewStyle,
+    MarkerPrimitive,
+    PreviewBounds,
+)
+from .core.configuration import entries_to_dict
+from .input_configs import GLOBAL_FIELDS
+from .paths import PROJECT_DIR, WORKFLOW_CONFIG
+from .plugin_runtime import application_plugins
 from .ui_theme import COLORS, FONTS, button_options
 from .visual_objects import (
     resolve_visual_object_bindings,
@@ -436,57 +453,56 @@ class CanvasDrawer:
 
     def _collect_data(self):
         global_vals = entries_to_dict(self.gui.entry, GLOBAL_FIELDS)
-        grids, cleaning_grids, washing_data = [], [], []
-        grid_flags = {}
-        spirals = []
-
-        for idx, grid_obj in sorted(self.gui.grid_tab_dict.items()):
-            if grid_obj and hasattr(grid_obj, 'grid_entry'):
-                vals = entries_to_dict(grid_obj.grid_entry, GRID_FIELDS)
-                grid_color = "green"
-                if hasattr(grid_obj, 'get_grid_color'):
-                    try:
-                        grid_color = grid_obj.get_grid_color()
-                    except Exception:
-                        grid_color = "green"
-                grids.append((idx, vals, grid_color))
-
-                flags = {
-                    'cleaning_enabled': bool(grid_obj.cleaning_enabled.get()),
-                    'washing_enabled': bool(grid_obj.washing_enabled.get()),
-                    'wash_after_loading': bool(grid_obj.wash_after_loading_enabled.get()),
-                    'final_rinse_enabled': bool(grid_obj.final_rinse_enabled.get()),
-                    'final_rinse_add_cleaning_grid': bool(
-                        grid_obj.final_rinse_add_cleaning_grid.get()
-                    ),
-                }
-                grid_flags[idx] = flags
-
-                if flags['cleaning_enabled'] or (
-                    flags['final_rinse_enabled']
-                    and flags['final_rinse_add_cleaning_grid']
-                ):
-                    vals_clean = entries_to_dict(grid_obj.cleaning_entry, CLEANING_FIELDS)
-                    cleaning_grids.append((idx, vals_clean))
-
-                if flags['washing_enabled']:
-                    vals_wash = entries_to_dict(grid_obj.washing_entry, WASHING_FIELDS)
-                    washing_data.append((idx, vals_wash))
-
-        # Collect spiral definitions (if any)
-        if hasattr(self.gui, 'spiral_tab_dict'):
-            for idx, spiral_obj in sorted(self.gui.spiral_tab_dict.items()):
-                try:
-                    if spiral_obj and hasattr(spiral_obj, 'spiral_entry'):
-                        vals = entries_to_dict(spiral_obj.spiral_entry, SPIRAL_FIELDS)
-                        spiral_color = 'orange'
-                        try:
-                            spiral_color = spiral_obj.get_grid_color()
-                        except Exception:
-                            pass
-                        spirals.append((idx, vals, spiral_color))
-                except Exception:
-                    continue
+        config_dir = Path(
+            getattr(self.gui, "config_dir", WORKFLOW_CONFIG.parent)
+        )
+        workflow_source = getattr(self.gui, "workflow_data", None)
+        if workflow_source is None:
+            workflow_source = config_dir / WORKFLOW_CONFIG.name
+        preview_context = CanvasPreviewContext(
+            global_values=global_vals,
+            config_dir=config_dir,
+            workflow_source=workflow_source,
+            style=CanvasPreviewStyle(
+                maintenance_primary=COLORS["warning"],
+                maintenance_secondary=COLORS["text_muted"],
+                maintenance_primary_outline=COLORS["canvas"],
+                maintenance_secondary_outline=COLORS["border_strong"],
+                washing_line=COLORS["axis_y"],
+            ),
+        )
+        pattern_previews = []
+        preview_warnings = []
+        plugins = getattr(self.gui, "pattern_plugins", None)
+        if plugins is None:
+            plugins = application_plugins()
+        for plugin in plugins:
+            if not isinstance(plugin, CanvasPreviewProvider):
+                continue
+            try:
+                preview = plugin.build_canvas_preview(
+                    self.gui,
+                    preview_context,
+                )
+                if not isinstance(preview, CanvasPreview):
+                    raise TypeError(
+                        "preview hook must return CanvasPreview"
+                    )
+                pattern_previews.append(preview)
+            except Exception as exc:
+                plugin_id = getattr(
+                    getattr(plugin, "manifest", None),
+                    "id",
+                    type(plugin).__name__,
+                )
+                preview_warnings.append(
+                    "{} preview is unavailable: {}".format(
+                        plugin_id,
+                        exc,
+                    )
+                )
+        pattern_preview = CanvasPreview.combine(pattern_previews)
+        preview_warnings.extend(pattern_preview.warnings)
 
         visual_binding_catalog = {}
         visual_binding_warnings = []
@@ -519,11 +535,8 @@ class CanvasDrawer:
 
         return {
             'global': global_vals,
-            'grids': grids,
-            'cleaning_grids': cleaning_grids,
-            'washing_data': washing_data,
-            'grid_flags': grid_flags,
-            'spirals': spirals,
+            'pattern_preview': pattern_preview,
+            'pattern_preview_warnings': tuple(preview_warnings),
             'visual_objects': visual_objects,
             'visual_binding_warnings': tuple(visual_binding_warnings),
         }
@@ -537,11 +550,12 @@ class CanvasDrawer:
             return
 
         global_vals = snapshot.get('global', {})
-        grids_list = snapshot.get('grids', [])
-        cleaning_grids_list = snapshot.get('cleaning_grids', [])
-        washing_data_list = snapshot.get('washing_data', [])
-        grid_flags = snapshot.get('grid_flags', {})
-        spirals_list = snapshot.get('spirals', [])
+        pattern_preview = snapshot.get(
+            'pattern_preview',
+            CanvasPreview.empty(),
+        )
+        if not isinstance(pattern_preview, CanvasPreview):
+            pattern_preview = CanvasPreview.empty()
         visual_objects = snapshot.get('visual_objects', [])
 
         if not global_vals:
@@ -551,220 +565,11 @@ class CanvasDrawer:
         # Base and offsets
         x_abs = float(global_vals.get('x_cord_of_y_line', 0))
         y_abs = float(global_vals.get('y_cord_of_x_line', 0))
-        first_x_off = float(global_vals.get('tuning_offset_x', 0))
-        first_y_off = float(global_vals.get('tuning_offset_y', 0))
         rect_w = float(global_vals.get('base_square_x', 0))
         rect_h = float(global_vals.get('base_square_y', 0))
         inner_w = float(global_vals.get('acceptance_square_x', 0))
         inner_h = float(global_vals.get('acceptance_square_y', 0))
 
-        # Plan spiral geometry before fitting/safety checks so the canvas and
-        # generated job use identical coordinates and workflow resolution.
-        spiral_preview_paths = []
-        preview_engine = None
-        try:
-            from pathlib import Path
-
-            from .gcode_workflow import WorkflowEngine, build_runtime_context_defaults
-            from .paths import WORKFLOW_CONFIG
-            from .plugins.spiral import SpiralPlugin
-
-            preview_context = build_runtime_context_defaults()
-            preview_context["global"].update(global_vals)
-            workflow_path = Path(self.gui.config_dir) / WORKFLOW_CONFIG.name
-            preview_engine = WorkflowEngine(workflow_path, preview_context)
-            spiral_planner = SpiralPlugin()
-            for spiral_index, spiral_values, spiral_color in spirals_list:
-                try:
-                    preview_engine.update_context({
-                        "spiral": dict(spiral_values),
-                        "runtime": {
-                            "job": {"kind": "spiral", "pattern_index": spiral_index}
-                        },
-                    })
-                    spiral_resolution = float(
-                        preview_engine.custom_value("spiral_resolution_radians")
-                    )
-                    millimeters_per_microliter = float(
-                        preview_engine.custom_value("syringe_mm_per_ul")
-                    )
-                    planned = spiral_planner.plan({
-                        "params": spiral_values,
-                        "resolution_radians": spiral_resolution,
-                        "millimeters_per_microliter": millimeters_per_microliter,
-                    })
-                    paths_by_start = {}
-                    for point in planned:
-                        paths_by_start.setdefault(point["start_index"], []).append(
-                            (point["x"], point["y"])
-                        )
-                    path_groups = list(paths_by_start.values())
-                    spiral_preview_paths.append({
-                        "index": spiral_index,
-                        "path": [point for path in path_groups for point in path],
-                        "paths": path_groups,
-                        "color": spiral_color,
-                        "dispense": float(spiral_values.get('dispense_vol', 0.003)),
-                        "mode": str(spiral_values.get('spiral_mode', 'drop')).strip().lower(),
-                    })
-                except Exception:
-                    continue
-        except Exception:
-            spiral_preview_paths = []
-
-        # --- Collect points and grid extents ---
-        points = []
-        grid_extents = []
-        washing_by_grid = {idx: vals for idx, vals in washing_data_list}
-        cleaning_by_grid = {idx: vals for idx, vals in cleaning_grids_list}
-
-        cleaning_cycles_by_grid = {idx: [] for idx, _values, _color in grids_list}
-        if preview_engine is not None:
-            try:
-                from .gcode_planner import calculate_grid_refill_ul, generate_grid_events
-
-                class _PreviewSink:
-                    @staticmethod
-                    def write(_text):
-                        return None
-
-                class _PreviewEventEngine:
-                    def __init__(self, workflow_engine):
-                        self.workflow_engine = workflow_engine
-                        self.cleaning_cycles = []
-
-                    def custom_value(self, name):
-                        return self.workflow_engine.custom_value(name)
-
-                    def emit(self, trigger, overrides):
-                        if trigger == "cleaning_start":
-                            self.cleaning_cycles.append(
-                                int(overrides["cleaning"]["cycle"])
-                            )
-                        return ""
-
-                preview_common = {
-                    "x_offset": x_abs + first_x_off,
-                    "y_offset": y_abs + first_y_off,
-                    "priming_vol": float(global_vals.get("priming_vol", 0.0)),
-                    "drop_extra_aspirate": float(
-                        global_vals.get("drop_extra_aspirate", 0.0)
-                    ),
-                    "max_syringe_vol": float(
-                        global_vals.get("max_syringe_vol", 0.0)
-                    ),
-                }
-                containers = build_containers(global_vals)
-                for grid_index, grid_values, _grid_color in grids_list:
-                    flags = grid_flags.get(grid_index, {})
-                    cleaning_values = cleaning_by_grid.get(grid_index, {})
-                    washing_values = washing_by_grid.get(grid_index, {})
-                    preview_engine.update_context({
-                        "grid": dict(grid_values),
-                        "cleaning": dict(cleaning_values),
-                        "washing": dict(washing_values),
-                        "runtime": {
-                            "job": {"kind": "grid", "pattern_index": grid_index}
-                        },
-                    })
-                    recorder = _PreviewEventEngine(preview_engine)
-                    cleaning_cycle_counter = [0]
-                    syringe_tracker = [0.0]
-                    washing_spot_counter = [0]
-                    generate_grid_events(
-                        file=_PreviewSink(),
-                        engine=recorder,
-                        common=preview_common,
-                        grid_values=grid_values,
-                        cleaning_values=cleaning_values,
-                        washing_values=washing_values,
-                        flags=flags,
-                        containers=containers,
-                        refill_ul=calculate_grid_refill_ul(
-                            preview_common,
-                            grid_values,
-                            cleaning_values,
-                            flags,
-                        ),
-                        washing_spot_counter=washing_spot_counter,
-                        syringe_tracker=syringe_tracker,
-                        cleaning_cycle_counter=cleaning_cycle_counter,
-                    )
-                    cycles = list(recorder.cleaning_cycles)
-                    if flags.get("final_rinse_enabled") and flags.get(
-                        "final_rinse_add_cleaning_grid"
-                    ):
-                        cycles.append(cleaning_cycle_counter[0])
-                    cleaning_cycles_by_grid[grid_index] = cycles
-            except Exception:
-                pass
-
-        def _cleaning_cycle_origins_for_grid(g_idx, rows, cols):
-            cleaning_vals = cleaning_by_grid.get(g_idx)
-            if not cleaning_vals:
-                return []
-
-            try:
-                offset_x = float(cleaning_vals.get('grid_offset_x_cleaning', 0.0))
-                offset_y = float(cleaning_vals.get('grid_offset_y_cleaning', 0.0))
-                rel_x = float(cleaning_vals.get('x_relative_increase', 0.0))
-                rel_y = float(cleaning_vals.get('y_relative_increase', 0.0))
-            except Exception:
-                return []
-
-            return [
-                (
-                    x_abs + first_x_off + offset_x + cycle_index * rel_x,
-                    y_abs + first_y_off + offset_y + cycle_index * rel_y,
-                    cycle_index,
-                )
-                for cycle_index in cleaning_cycles_by_grid.get(g_idx, [])
-            ]
-
-        cleaning_preview_points = []
-        for g_idx, vals, grid_color in grids_list:
-            rows = int(vals.get('rows', 0))
-            cols = int(vals.get('cols', 0))
-            x_step = float(vals.get('pitch_x', 0))
-            y_step = float(vals.get('pitch_y', 0))
-            grid_x_off = float(vals.get('grid_offset_x', 0))
-            grid_y_off = float(vals.get('grid_offset_y', 0))
-            dispense = float(vals.get('dispense_vol', 0))
-
-            # Grid positions include first offsets
-            start_x = x_abs + first_x_off + grid_x_off
-            start_y = y_abs + first_y_off + grid_y_off
-
-            width = (cols - 1) * x_step if cols > 0 else 0
-            height = (rows - 1) * y_step if rows > 0 else 0
-            end_x = start_x + width
-            end_y = start_y + height
-            grid_extents.append({
-                'grid_idx': g_idx,
-                'x1': min(start_x, end_x),
-                'y1': min(start_y, end_y),
-                'x2': max(start_x, end_x),
-                'y2': max(start_y, end_y),
-            })
-
-            for r in range(rows):
-                for c in range(cols):
-                    points.append((start_x + c * x_step, start_y + r * y_step, g_idx, dispense, grid_color))
-
-            cleaning_vals = cleaning_by_grid.get(g_idx)
-            if cleaning_vals:
-                c_rows = int(float(cleaning_vals.get('rows_cleaning', 0)))
-                c_cols = int(float(cleaning_vals.get('cols_cleaning', 0)))
-                c_pitch_x = float(cleaning_vals.get('pitch_x_cleaning', 0.0))
-                c_pitch_y = float(cleaning_vals.get('pitch_y_cleaning', 0.0))
-                for cycle_start_x, cycle_start_y, cycle_index in _cleaning_cycle_origins_for_grid(g_idx, rows, cols):
-                    for cr in range(c_rows):
-                        for cc in range(c_cols):
-                            cleaning_preview_points.append((
-                                cycle_start_x + cc * c_pitch_x,
-                                cycle_start_y + cr * c_pitch_y,
-                                cycle_index,
-                            ))
         # --- Inner acceptance rectangle centered in the build plate ---
         inner_x1 = x_abs + (rect_w - inner_w) / 2
         inner_y1 = y_abs + (rect_h - inner_h) / 2
@@ -774,28 +579,15 @@ class CanvasDrawer:
         # --- Determine world bounds around TCP (0,0) and visible content ---
         xs = [0.0]
         ys = [0.0]
-        xs.extend(point[0] for point in points)
-        ys.extend(point[1] for point in points)
-        xs.extend(point[0] for point in cleaning_preview_points)
-        ys.extend(point[1] for point in cleaning_preview_points)
-        xs.extend(x for item in spiral_preview_paths for x, _y in item["path"])
-        ys.extend(y for item in spiral_preview_paths for _x, y in item["path"])
+        preview_points = pattern_preview.all_points()
+        xs.extend(point[0] for point in preview_points)
+        ys.extend(point[1] for point in preview_points)
         for item in visual_objects:
             try:
                 left, bottom, right, top = visual_object_bounds(item)
                 xs.extend((left, right))
                 ys.extend((bottom, top))
             except (KeyError, TypeError, ValueError):
-                continue
-
-        for _grid_index, washing_values in washing_data_list:
-            try:
-                wash_x = float(washing_values.get('washing_x_pos', 0))
-                wash_y = float(washing_values.get('washing_y_pos', 0))
-                wash_length = float(washing_values.get('washing_line_lenght', 0))
-                xs.extend((wash_x, wash_x + wash_length))
-                ys.append(wash_y)
-            except (TypeError, ValueError):
                 continue
 
         minx, maxx = min(xs), max(xs)
@@ -850,25 +642,15 @@ class CanvasDrawer:
                 pan_y=self._pan_y,
             )
 
-        # --- Check if any grid exceeds acceptance rectangle ---
-        exceed = False
-        for g in grid_extents:
-            if g['x1'] < inner_x1 or g['y1'] < inner_y1 or g['x2'] > inner_x2 or g['y2'] > inner_y2:
-                exceed = True
-                break
-        if not exceed:
-            for cx, cy, _ in cleaning_preview_points:
-                if cx < inner_x1 or cy < inner_y1 or cx > inner_x2 or cy > inner_y2:
-                    exceed = True
-                    break
-        if not exceed:
-            for spiral in spiral_preview_paths:
-                if any(
-                    x < inner_x1 or y < inner_y1 or x > inner_x2 or y > inner_y2
-                    for x, y in spiral["path"]
-                ):
-                    exceed = True
-                    break
+        # Every preview-capable plugin participates in the same safety check.
+        exceed = pattern_preview.extends_outside(
+            PreviewBounds(
+                x_min=inner_x1,
+                y_min=inner_y1,
+                x_max=inner_x2,
+                y_max=inner_y2,
+            )
+        )
         if exceed and not getattr(self, '_last_exceed_state', False):
             self._show_exceed_popup()
         self._last_exceed_state = exceed
@@ -1103,107 +885,118 @@ class CanvasDrawer:
             except tk.TclError:
                 return COLORS['text_secondary']
 
-        # --- Draw grid points ---
-        for x, y, g_idx, dispense, grid_color in points:
-            px, py = world_to_canvas(x, y)
-            diam_mm = max(0, m * dispense + b)
-            rad_px = min(max(1, int((diam_mm / 2) * effective_scale)), 80)
-            self.canvas.create_oval(px - rad_px, py - rad_px, px + rad_px, py + rad_px,
-                                    fill=grid_color, outline=_series_outline(grid_color), width=1)
-
-        # --- Draw the spiral geometry already used for bounds/safety checks ---
-        for spiral in spiral_preview_paths:
-            paths = spiral["paths"]
-            if not paths:
-                continue
-            s_color = spiral["color"]
-            dispense = spiral["dispense"]
-            mode = spiral["mode"]
-
-            # Draw each start separately.  Joining starts would imply a
-            # deposited connector that generation intentionally does not emit.
-            for path in paths:
-                last_px = None
-                for px_world, py_world in path:
-                    px_canvas, py_canvas = world_to_canvas(px_world, py_world)
-                    if last_px is not None:
-                        self.canvas.create_line(
-                            last_px[0], last_px[1], px_canvas, py_canvas,
-                            fill=_series_outline(s_color), width=4,
-                        )
-                        self.canvas.create_line(
-                            last_px[0], last_px[1], px_canvas, py_canvas,
-                            fill=s_color, width=2,
-                        )
-                    last_px = (px_canvas, py_canvas)
-
-            # for drop mode, mark spots as circles
-            if mode == 'drop':
-                for px_world, py_world in spiral["path"]:
-                    px_canvas, py_canvas = world_to_canvas(px_world, py_world)
-                    diam_mm = max(0, m * dispense + b)
-                    rad_px = max(2, int((diam_mm / 2) * effective_scale))
-                    self.canvas.create_oval(
-                        px_canvas - rad_px,
-                        py_canvas - rad_px,
-                        px_canvas + rad_px,
-                        py_canvas + rad_px,
-                        fill=s_color,
-                        outline=_series_outline(s_color),
-                        width=1,
-                    )
-
-        # --- Draw cleaning grids (cycle 0 solid, follow-up cycles faded) ---
-        for g_idx, vals, _grid_color in grids_list:
-            cleaning_vals = cleaning_by_grid.get(g_idx)
-            if not cleaning_vals:
-                continue
-
-            rows = int(vals.get('rows', 0))
-            cols = int(vals.get('cols', 0))
-            c_rows = int(float(cleaning_vals.get('rows_cleaning', 0)))
-            c_cols = int(float(cleaning_vals.get('cols_cleaning', 0)))
-            if c_rows <= 0 or c_cols <= 0:
-                continue
-
-            c_pitch_x = float(cleaning_vals.get('pitch_x_cleaning', 0.0))
-            c_pitch_y = float(cleaning_vals.get('pitch_y_cleaning', 0.0))
-
-            for start_x, start_y, cycle_index in _cleaning_cycle_origins_for_grid(g_idx, rows, cols):
-                fill_color = COLORS['warning'] if cycle_index == 0 else COLORS['text_muted']
-                outline_color = COLORS['canvas'] if cycle_index == 0 else COLORS['border_strong']
-
-                for r in range(c_rows):
-                    for c in range(c_cols):
-                        cx = start_x + c * c_pitch_x
-                        cy = start_y + r * c_pitch_y
-                        px, py = world_to_canvas(cx, cy)
-                        s = max(2, int(0.08 * effective_scale))
-                        self.canvas.create_rectangle(px - s, py - s, px + s, py + s, fill=fill_color, outline=outline_color)
-
-        # --- Draw washing lines ---
-        for g_idx, wvals in washing_data_list:
-            wash = {k: float(v) for k, v in wvals.items()}
-            x_start, x_offset = wash.get('washing_x_pos', 0), wash.get('washing_line_lenght', 0)
-            row_offset = wash.get('washing_y_pos', 0)
-
-            # Washing coordinates are absolute machine coordinates, same as container positions.
-            start_x_world = x_start
-            end_x_world = start_x_world + x_offset
-            y_world = row_offset
-
-            px_left, py = world_to_canvas(start_x_world, y_world)
-            px_right, _py = world_to_canvas(end_x_world, y_world)
-
-            self.canvas.create_line(
-                px_left,
-                py,
-                px_right,
-                py,
-                width=3,
-                fill=COLORS['axis_y'],
-                dash=(8, 3),
+        def _marker_radius(volume_ul, size_mm, minimum_pixels):
+            diameter_mm = (
+                max(0.0, m * float(volume_ul) + b)
+                if volume_ul is not None
+                else max(0.0, float(size_mm))
             )
+            return min(
+                max(
+                    int(minimum_pixels),
+                    int((diameter_mm / 2.0) * effective_scale),
+                ),
+                80,
+            )
+
+        def _draw_marker(marker):
+            px, py = world_to_canvas(marker.x, marker.y)
+            radius = _marker_radius(
+                marker.volume_ul,
+                marker.size_mm,
+                marker.minimum_pixels,
+            )
+            draw_shape = (
+                self.canvas.create_rectangle
+                if marker.shape == "square"
+                else self.canvas.create_oval
+            )
+            draw_shape(
+                px - radius,
+                py - radius,
+                px + radius,
+                py + radius,
+                fill=marker.color,
+                outline=marker.outline or _series_outline(marker.color),
+                width=1,
+            )
+
+        # Render plugin layers in a stable order without knowing their type or
+        # identity. A future plugin only needs to return core primitives.
+        layers = []
+        layers.extend(
+            (marker.z_index, 0, index, "marker", marker)
+            for index, marker in enumerate(pattern_preview.markers)
+        )
+        layers.extend(
+            (polyline.z_index, 1, index, "polyline", polyline)
+            for index, polyline in enumerate(pattern_preview.polylines)
+        )
+        layers.extend(
+            (line.z_index, 2, index, "line", line)
+            for index, line in enumerate(pattern_preview.lines)
+        )
+        for _z_index, _kind_order, _index, kind, primitive in sorted(
+            layers
+        ):
+            if kind == "marker":
+                _draw_marker(primitive)
+                continue
+            if kind == "line":
+                start_x, start_y = world_to_canvas(*primitive.start)
+                end_x, end_y = world_to_canvas(*primitive.end)
+                options = {
+                    "fill": primitive.color,
+                    "width": primitive.width,
+                }
+                if primitive.dash:
+                    options["dash"] = primitive.dash
+                self.canvas.create_line(
+                    start_x,
+                    start_y,
+                    end_x,
+                    end_y,
+                    **options,
+                )
+                continue
+
+            pixel_points = [
+                world_to_canvas(x, y)
+                for x, y in primitive.points
+            ]
+            if len(pixel_points) >= 2:
+                coordinates = [
+                    coordinate
+                    for point in pixel_points
+                    for coordinate in point
+                ]
+                self.canvas.create_line(
+                    *coordinates,
+                    fill=(
+                        primitive.outline
+                        or _series_outline(primitive.color)
+                    ),
+                    width=primitive.width + 2,
+                )
+                self.canvas.create_line(
+                    *coordinates,
+                    fill=primitive.color,
+                    width=primitive.width,
+                )
+            if primitive.show_markers:
+                for x, y in primitive.points:
+                    _draw_marker(
+                        MarkerPrimitive(
+                            x=x,
+                            y=y,
+                            color=primitive.color,
+                            volume_ul=primitive.marker_volume_ul,
+                            outline=primitive.outline,
+                            minimum_pixels=(
+                                primitive.marker_minimum_pixels
+                            ),
+                        )
+                    )
 
         # Solid layout surfaces must not hide the TCP coordinate axes.
         self.canvas.tag_raise('coordinate_axis')

@@ -34,6 +34,7 @@ from .runtime_job import (
     capture_generation_snapshot,
     generate_job_artifact,
 )
+from .plugin_runtime import require_application_plugin
 from .runtime_logging import get_logger, log_options
 
 
@@ -44,11 +45,9 @@ REQUIRED_REMOTE_COMMANDS = frozenset(
         "ADJUST_NEEDLE_SURFACE_OFFSET",
         "NEEDLE_TIP_OFFSETS_DISABLE",
         "NEEDLE_TIP_OFFSETS_ENABLE",
-        "OPENSPOTTER_CONTRACT_V3",
-        "OPENSPOTTER_HOME",
+        "HOMING",
+        "OPENSPOTTER_CONTRACT_V4",
         "OPENSPOTTER_JOB_CLEANUP",
-        "OPENSPOTTER_JOB_HOME",
-        "OPENSPOTTER_JOB_REHOME_Z",
         "OPENSPOTTER_JOG",
         "OPENSPOTTER_SET_PROMPT",
         "RESET_NEEDLE_SURFACE_OFFSET",
@@ -391,17 +390,45 @@ def artifact_hardware_preflight_error(
 ) -> Optional[str]:
     uses_mesh = False
     enables_offsets = False
+    homing_count = 0
+    retired_homing_commands = {
+        "OPENSPOTTER_HOME",
+        "OPENSPOTTER_JOB_HOME",
+        "OPENSPOTTER_JOB_REHOME_Z",
+    }
     with Path(artifact.path).open("r", encoding="utf-8", errors="replace") as handle:
-        for raw_line in handle:
+        for line_number, raw_line in enumerate(handle, start=1):
             command = raw_line.split(";", 1)[0].strip().upper()
+            command_name = command.split(None, 1)[0] if command else ""
+            if (
+                command_name in retired_homing_commands
+                or command_name == "G28"
+                or command_name == "SET_TMC_FIELD"
+            ):
+                return (
+                    f"Line {line_number} uses retired homing command "
+                    f"'{command_name}'. Reload or update the workflow so the "
+                    "job contains exactly one standalone HOMING command."
+                )
+            if command_name == "HOMING":
+                if command != "HOMING":
+                    return (
+                        f"Line {line_number} passes arguments to HOMING. Reload "
+                        "or update the workflow so it calls standalone HOMING."
+                    )
+                homing_count += 1
             if command == "MESH" or command.startswith("MESH "):
                 uses_mesh = True
             elif command == "NEEDLE_TIP_OFFSETS_ENABLE" or command.startswith(
                 "NEEDLE_TIP_OFFSETS_ENABLE "
             ):
                 enables_offsets = True
-            if uses_mesh and enables_offsets:
-                break
+    if homing_count != 1:
+        return (
+            "The generated job must contain exactly one standalone HOMING "
+            f"command; found {homing_count}. Reload or update the G-code "
+            "workflow before starting."
+        )
     if uses_mesh and view.bltouch_state != "loaded":
         return (
             "The exact artifact uses MESH, but saved BLTouch state is "
@@ -698,9 +725,10 @@ class MachineControlController:
                 if contract_error:
                     self.panel.set_operation(
                         "Moonraker connected, but guarded firmware controls "
-                        f"are unavailable: {contract_error}. Upload the current "
-                        "remote_control.cfg and hardware.cfg, restart Klipper, "
-                        "then reconnect.",
+                        f"are unavailable: {contract_error}. Install the current "
+                        "remote_control.cfg and hardware.cfg, define an "
+                        "operator-owned [gcode_macro HOMING] in an included "
+                        "Klipper file, restart Klipper, then reconnect.",
                         level="warning",
                     )
                 else:
@@ -897,8 +925,14 @@ class MachineControlController:
         workflow_hash = hashlib.sha256(
             snapshot.workflow_json.encode("utf-8")
         ).hexdigest()[:12]
-        item_count = len(snapshot.grids) if snapshot.kind == "grid" else len(snapshot.spirals)
-        item_label = "grid" if snapshot.kind == "grid" else "spiral"
+        recipes = getattr(snapshot, "recipes", None)
+        if recipes is None:
+            # Compatibility for callers still constructing pre-plugin
+            # snapshots with a pluralized recipe attribute.
+            recipes = getattr(snapshot, "{}s".format(snapshot.kind), ())
+        item_count = len(recipes)
+        plugin = require_application_plugin(snapshot.kind)
+        item_label = plugin.manifest.display_name.lower()
         if item_count != 1:
             item_label += "s"
         self._pending_job_summary = (
@@ -970,7 +1004,9 @@ class MachineControlController:
                 "This is the detached snapshot captured before any later UI "
                 "edits. The effective workflow/profile is executable machine "
                 "code. Starting can home, probe, move, dispense, and pause for "
-                "operator actions.\n\nStart this exact artifact now?"
+                "operator actions. The artifact calls your operator-owned HOMING "
+                "macro; its current Klipper definition is not captured or "
+                "verified by this artifact hash.\n\nStart this exact artifact now?"
             ),
             parent=self.root,
         )
@@ -1203,7 +1239,7 @@ class MachineControlController:
             or view.print_state in {"printing", "paused"}
         ):
             self._report_error(
-                "Safe home XYZ",
+                "Run HOMING",
                 ValueError(
                     "Machine must be ready and no virtual-SD job may be active"
                 ),
@@ -1212,34 +1248,36 @@ class MachineControlController:
         contract_error = remote_control_contract_error(view)
         if contract_error:
             self._report_error(
-                "Safe home XYZ",
+                "Run HOMING",
                 ValueError(
                     f"Guarded firmware controls are not ready: {contract_error}. "
-                    "Upload the current remote_control.cfg and hardware.cfg, "
-                    "keep the include in printer.cfg, restart Klipper, and reconnect."
+                    "Install the current remote_control.cfg and hardware.cfg, "
+                    "define an operator-owned [gcode_macro HOMING] in an included "
+                    "Klipper file, restart Klipper, and reconnect."
                 ),
             )
             return
         if not messagebox.askyesno(
-            "Safe home XYZ",
+            "Run HOMING",
             (
-                "Run the reviewed OpenSpotter full homing sequence "
-                "(settle, home/release Z, settle, home/release Y, move to "
-                "Z clearance, then settle and home/release X)?"
+                "Run your firmware HOMING macro?\n\n"
+                "OpenSpotter treats HOMING as an operator-owned routine and "
+                "does not inspect its movements. Make sure the machine and "
+                "work area are clear."
             ),
             parent=self.root,
         ):
             return
         console_since = self._console_marker()
         future = self.runtime.send_gcode(
-            "OPENSPOTTER_HOME",
+            "HOMING",
             priority=self.runtime.PRIORITY_CONTROL,
             timeout=self.runtime.config.gcode_timeout,
         )
         self._submit_control(
             future,
-            "Running safe full-home sequence...",
-            "Home machine",
+            "Running firmware HOMING macro...",
+            "Run HOMING",
             console_since=console_since,
             interlock_on_error=True,
         )
@@ -1293,8 +1331,9 @@ class MachineControlController:
                 "Jog machine",
                 ValueError(
                     f"Guarded firmware controls are not ready: {contract_error}. "
-                    "Upload the current remote_control.cfg and hardware.cfg, "
-                    "restart Klipper, and reconnect."
+                    "Install the current remote_control.cfg and hardware.cfg, "
+                    "define an operator-owned [gcode_macro HOMING] in an included "
+                    "Klipper file, restart Klipper, and reconnect."
                 ),
             )
             return
@@ -1607,12 +1646,12 @@ class MachineControlController:
         commands = tuple(result.commands)
         names = {command.name for command in commands}
         guarded_motion_names = names & {
-            "OPENSPOTTER_HOME",
+            "HOMING",
             "OPENSPOTTER_JOG",
         }
         if guarded_motion_names and len(commands) != 1:
             return (
-                "Reviewed OPENSPOTTER_HOME or OPENSPOTTER_JOG must be the "
+                "HOMING or OPENSPOTTER_JOG must be the "
                 "only executable command in a manual send.",
                 0.0,
             )
@@ -1621,7 +1660,7 @@ class MachineControlController:
             for command in commands
         )
         manual_home_only = names <= {
-            "OPENSPOTTER_HOME",
+            "HOMING",
             "G90",
             "G91",
             "M400",
@@ -1630,7 +1669,7 @@ class MachineControlController:
             if not set("xyz") <= set(view.homed_axes):
                 return (
                     "All XYZ axes must be homed before sending manual motion. "
-                    "Use SAFE HOME XYZ first.",
+                    "Run HOMING first.",
                     0.0,
                 )
             if view.offsets_enabled:
@@ -1802,7 +1841,7 @@ class MachineControlController:
                 f"guarded command(s): {', '.join(missing)}",
                 0.0,
             )
-        if names & {"OPENSPOTTER_HOME", "OPENSPOTTER_JOG"}:
+        if names & {"HOMING", "OPENSPOTTER_JOG"}:
             contract_error = remote_control_contract_error(view)
             if contract_error:
                 return (

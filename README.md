@@ -9,7 +9,8 @@ OpenSpotter Hub is an open-source workspace for liquid-handling and spotting pla
 
 ![OpenSpotter-Syringe V1 hardware](OpenSpotter-Syringe/Spotter.JPEG)
 
-![OpenSpotter-Syringe V2 hardware](OpenSpotter-Syringe/SpotterV2.JPEG)
+![OpenSpotter-Syringe V2 hardware](OpenSpotter-Syringe/SpotterV2.jpg)
+
 ## Syringe project map
 
 - [Getting started](OpenSpotter-Syringe/GETTING_STARTED.md)

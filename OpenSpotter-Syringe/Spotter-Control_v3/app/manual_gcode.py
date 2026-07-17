@@ -89,7 +89,7 @@ _HOMING_COMMANDS = {
     "HOME_SYRINGE",
     "LOAD_BLTOUCH",
     "MESH",
-    "OPENSPOTTER_HOME",
+    "HOMING",
     "PARK_BLTOUCH",
     "PROBE",
     "PROBE_ACCURACY",
@@ -223,8 +223,8 @@ _INFORMATIONAL_COMMANDS = {
     "WAIT",
 }
 
-_SAFE_OPENSPOTTER_MACROS = {
-    "OPENSPOTTER_HOME",
+_SAFE_FIRMWARE_MACROS = {
+    "HOMING",
     "OPENSPOTTER_JOG",
     "OPENSPOTTER_RUNTIME_STATUS",
 }
@@ -237,7 +237,7 @@ _ALLOWED_MANUAL_COMMANDS = frozenset(
         "G91",
         "M112",
         "EMERGENCY_STOP",
-        "OPENSPOTTER_HOME",
+        "HOMING",
         "OPENSPOTTER_JOG",
     }
 )
@@ -245,7 +245,7 @@ _BLOCKED_COMMAND_REASONS = {
     "G2": "arc motion bypasses the reviewed linear-move safety wrapper",
     "G3": "arc motion bypasses the reviewed linear-move safety wrapper",
     "G5": "spline motion bypasses the reviewed linear-move safety wrapper",
-    "G28": "raw homing bypasses the reviewed OPENSPOTTER_HOME sequence",
+    "G28": "raw homing bypasses the operator-owned HOMING macro",
     "G92": "raw coordinate reassignment can invalidate machine safety state",
     "FORCE_MOVE": "force moves bypass homing and normal kinematic safeguards",
     "MANUAL_STEPPER": "direct stepper control bypasses reviewed motion safeguards",
@@ -430,7 +430,7 @@ def _blocked_reason(
         return "private firmware macros may not be called from manual G-code"
     if (
         command_name.startswith("OPENSPOTTER_")
-        and command_name not in _SAFE_OPENSPOTTER_MACROS
+        and command_name not in _SAFE_FIRMWARE_MACROS
     ):
         return "job-only OpenSpotter macros may not be called manually"
     if command_name.startswith("SET_TMC_"):

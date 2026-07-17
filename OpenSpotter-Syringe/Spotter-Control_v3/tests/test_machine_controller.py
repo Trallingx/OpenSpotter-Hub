@@ -297,8 +297,8 @@ class MachineViewAndPreflightTests(unittest.TestCase):
         self.assertEqual(view.gcode_position, (10.0, 20.0, 30.0))
         self.assertEqual(view.homing_origin, (1.0, 1.0, 1.0))
         self.assertEqual(view.bed_mesh_profile, "")
-        self.assertIn("OPENSPOTTER_CONTRACT_V3", view.gcode_commands)
-        self.assertIn("OPENSPOTTER_HOME", view.gcode_commands)
+        self.assertIn("OPENSPOTTER_CONTRACT_V4", view.gcode_commands)
+        self.assertIn("HOMING", view.gcode_commands)
         self.assertIsNone(
             start_preflight_error(view, parameters_locked=True)
         )
@@ -323,7 +323,7 @@ class MachineViewAndPreflightTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             artifact = make_artifact(
                 directory,
-                "G90\nMESH X_MIN=1 X_MAX=2 Y_MIN=1 Y_MAX=2\n"
+                "G90\nHOMING\nMESH X_MIN=1 X_MAX=2 Y_MIN=1 Y_MAX=2\n"
                 "NEEDLE_TIP_OFFSETS_ENABLE\nG0 X10\n",
             )
             state = make_state()
@@ -333,6 +333,34 @@ class MachineViewAndPreflightTests(unittest.TestCase):
             error = artifact_hardware_preflight_error(artifact, view)
 
         self.assertIn("BLTouch", error)
+
+    def test_artifact_requires_exactly_one_bare_homing_command(self):
+        cases = {
+            "HOMING\n": None,
+            "G90\n": "exactly one",
+            "HOMING\nHOMING\n": "exactly one",
+            "HOMING MODE=FAST\n": "passes arguments",
+            "OPENSPOTTER_HOME\n": "retired homing command",
+            "OPENSPOTTER_JOB_HOME\n": "retired homing command",
+            "OPENSPOTTER_JOB_REHOME_Z\n": "retired homing command",
+            "G28\n": "retired homing command",
+            "SET_TMC_FIELD STEPPER=stepper_z FIELD=SGT VALUE=1\n": (
+                "retired homing command"
+            ),
+        }
+        view = machine_view_from_state(make_state())
+
+        with tempfile.TemporaryDirectory() as directory:
+            for index, (script, expected) in enumerate(cases.items()):
+                with self.subTest(script=script):
+                    case_dir = Path(directory) / str(index)
+                    case_dir.mkdir()
+                    artifact = make_artifact(case_dir, script)
+                    error = artifact_hardware_preflight_error(artifact, view)
+                    if expected is None:
+                        self.assertIsNone(error)
+                    else:
+                        self.assertIn(expected, error)
 
     def test_artifact_rejects_ambiguous_traditional_gcode_numbers(self):
         view = machine_view_from_state(make_state())
@@ -422,7 +450,7 @@ class MachineControllerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             artifact = make_artifact(
                 directory,
-                "G90\nNEEDLE_TIP_OFFSETS_DISABLE\nG0 X10 Y10 Z10\n"
+                "G90\nHOMING\nNEEDLE_TIP_OFFSETS_DISABLE\nG0 X10 Y10 Z10\n"
                 "NEEDLE_TIP_OFFSETS_ENABLE\nG0 X20 Y20 Z20\n",
             )
             runtime = FakeRuntime(make_state())
@@ -464,11 +492,40 @@ class MachineControllerTests(unittest.TestCase):
             self.assertFalse(controller._launch_pending)
             self.assertFalse(controller._outcome_unknown)
 
+    def test_legacy_homing_artifact_is_rejected_before_upload(self):
+        with tempfile.TemporaryDirectory() as directory:
+            artifact = make_artifact(
+                directory,
+                "G90\nG28\nSET_TMC_FIELD STEPPER=stepper_z "
+                "FIELD=SGT VALUE=1\n",
+            )
+            runtime = FakeRuntime(make_state())
+            controller, root, panel = self.make_controller(runtime, artifact)
+            snapshot = SimpleNamespace(
+                kind="grid",
+                grids=(object(),),
+                spirals=(),
+                workflow_json='{"name":"legacy"}',
+            )
+
+            with mock.patch(
+                "app.machine_controller.capture_generation_snapshot",
+                return_value=snapshot,
+            ), mock.patch(
+                "app.machine_controller.messagebox.showerror"
+            ):
+                controller.start_current_job()
+                root.run_short_callbacks()
+
+            self.assertEqual(runtime.upload_calls, [])
+            self.assertEqual(runtime.start_calls, [])
+            self.assertIn("retired homing command", panel.operations[-1][0])
+
     def test_launch_confirmation_handles_early_status_and_rejects_stale_complete(self):
         with tempfile.TemporaryDirectory() as directory:
             artifact = make_artifact(
                 directory,
-                "G90\nNEEDLE_TIP_OFFSETS_DISABLE\nG0 X10\n",
+                "G90\nHOMING\nNEEDLE_TIP_OFFSETS_DISABLE\nG0 X10\n",
             )
             snapshot = SimpleNamespace(
                 kind="grid",
@@ -548,7 +605,7 @@ class MachineControllerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             artifact = make_artifact(
                 directory,
-                "G90\nMESH X_MIN=1 X_MAX=2 Y_MIN=1 Y_MAX=2\nG0 X10\n",
+                "G90\nHOMING\nMESH X_MIN=1 X_MAX=2 Y_MIN=1 Y_MAX=2\nG0 X10\n",
             )
             runtime = FakeRuntime(make_state())
 
@@ -676,6 +733,8 @@ class MachineControllerTests(unittest.TestCase):
                 root.run_short_callbacks()
 
             self.assertTrue(controller._outcome_unknown)
+            runtime.send_gcode.assert_called_once()
+            self.assertEqual(runtime.send_gcode.call_args.args[0], "HOMING")
             self.assertIn("may have executed partially", panel.operations[-1][0])
 
     def test_live_z_requires_active_virtual_sd_and_homed_z(self):
@@ -734,7 +793,7 @@ class MachineControllerTests(unittest.TestCase):
             commands = set(
                 state.objects["_openspotter_capabilities"]["gcode_commands"]
             )
-            commands.remove("OPENSPOTTER_CONTRACT_V3")
+            commands.remove("OPENSPOTTER_CONTRACT_V4")
             state.objects["_openspotter_capabilities"][
                 "gcode_commands"
             ] = tuple(sorted(commands))
@@ -748,9 +807,38 @@ class MachineControllerTests(unittest.TestCase):
             self.assertEqual(runtime.gcode_calls, [])
             self.assertTrue(
                 any(
-                    "OPENSPOTTER_CONTRACT_V3" in operation[0]
+                    "OPENSPOTTER_CONTRACT_V4" in operation[0]
                     for operation in panel.operations
                 )
+            )
+
+    def test_missing_operator_homing_macro_blocks_start_and_home(self):
+        with tempfile.TemporaryDirectory() as directory:
+            artifact = make_artifact(directory, "G90\nHOMING\nG0 X10\n")
+            state = make_state()
+            commands = set(
+                state.objects["_openspotter_capabilities"]["gcode_commands"]
+            )
+            commands.remove("HOMING")
+            state.objects["_openspotter_capabilities"][
+                "gcode_commands"
+            ] = tuple(sorted(commands))
+            runtime = FakeRuntime(state)
+            controller, _root, panel = self.make_controller(runtime, artifact)
+
+            view = machine_view_from_state(state)
+            self.assertIn(
+                "HOMING",
+                start_preflight_error(view, parameters_locked=True),
+            )
+            with mock.patch("app.machine_controller.messagebox.showerror"):
+                controller.start_current_job()
+                controller.home()
+
+            self.assertEqual(runtime.upload_calls, [])
+            self.assertEqual(runtime.gcode_calls, [])
+            self.assertTrue(
+                any("HOMING" in operation[0] for operation in panel.operations)
             )
 
     def test_manual_gcode_parses_wraps_and_confirms_completion(self):

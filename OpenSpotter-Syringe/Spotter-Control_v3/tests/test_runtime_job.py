@@ -2,8 +2,12 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 from app.runtime_job import (
+    GridJobSnapshot,
+    PatternRecipeSnapshot,
     JobArtifact,
     capture_generation_snapshot,
     generate_job_artifact,
@@ -28,6 +32,9 @@ class RuntimeJobTests(unittest.TestCase):
         gui.grid_tab_dict[1].grid_entry[0].value = 99
 
         self.assertEqual(snapshot.kind, "grid")
+        self.assertIsInstance(snapshot.recipes[0], PatternRecipeSnapshot)
+        self.assertIsInstance(snapshot.recipes[0].payload, GridJobSnapshot)
+        self.assertIs(snapshot.grids[0], snapshot.recipes[0].payload)
         self.assertEqual(snapshot.grids[0].grid["rows"], 1)
 
     def test_runtime_artifact_contains_hash_profile_and_line_index(self):
@@ -50,6 +57,12 @@ class RuntimeJobTests(unittest.TestCase):
                 "OPENSPOTTER_SET_PROMPT PROMPT=20",
                 artifact.path.read_text(encoding="utf-8"),
             )
+            commands = [
+                line.split(";", 1)[0].strip().upper()
+                for line in artifact.path.read_text(encoding="utf-8").splitlines()
+                if line.split(";", 1)[0].strip()
+            ]
+            self.assertEqual(commands.count("HOMING"), 1)
 
             file_position = artifact.line_offsets[-1]
             current, context = artifact.context_for_file_position(file_position)
@@ -169,6 +182,71 @@ class RuntimeJobTests(unittest.TestCase):
         with self.assertRaisesRegex(
             ValueError,
             "pattern and maintenance operations",
+        ):
+            capture_generation_snapshot(gui)
+
+    def test_registered_plugin_owns_runtime_capture_and_generation(self):
+        class RuntimePlugin:
+            manifest = SimpleNamespace(id="dots", version="2.0")
+
+            def __init__(self):
+                self.capture_call = None
+                self.generate_call = None
+
+            def capture_runtime_recipes(
+                self,
+                gui,
+                global_values,
+                workflow,
+            ):
+                self.capture_call = (gui, global_values, workflow)
+                return (
+                    PatternRecipeSnapshot(
+                        plugin_id="dots",
+                        number=1,
+                        payload=("detached", 7),
+                        estimated_work=7,
+                    ),
+                )
+
+            def generate_runtime(self, context, recipes, filepath):
+                self.generate_call = (context, recipes, filepath)
+                path = Path(filepath)
+                path.write_text("G1 X7\n", encoding="utf-8")
+                path.with_name(
+                    "{}_settings.json".format(path.stem)
+                ).write_text("{}\n", encoding="utf-8")
+                return str(path)
+
+        plugin = RuntimePlugin()
+        gui = FakeGui()
+        gui.config_dir = str(PROJECT_DIR / "config")
+        gui._current_workspace_mode = lambda: "dots"
+
+        with mock.patch(
+            "app.runtime_job.require_application_plugin",
+            return_value=plugin,
+        ), tempfile.TemporaryDirectory() as temp_dir:
+            snapshot = capture_generation_snapshot(gui)
+            artifact = generate_job_artifact(snapshot, temp_dir)
+
+        self.assertEqual(snapshot.kind, "dots")
+        self.assertEqual(snapshot.recipes[0].payload, ("detached", 7))
+        self.assertIs(plugin.capture_call[0], gui)
+        self.assertEqual(plugin.generate_call[0].config_dir, gui.config_dir)
+        self.assertIs(plugin.generate_call[1], snapshot.recipes)
+        self.assertEqual(artifact.remote_path.split("/")[1], "dots")
+
+    def test_unavailable_runtime_plugin_fails_with_an_actionable_error(self):
+        gui = FakeGui()
+        gui._current_workspace_mode = lambda: "missing-pattern"
+
+        with mock.patch(
+            "app.runtime_job.require_application_plugin",
+            side_effect=KeyError("missing"),
+        ), self.assertRaisesRegex(
+            ValueError,
+            "unavailable or does not support direct-run jobs",
         ):
             capture_generation_snapshot(gui)
 

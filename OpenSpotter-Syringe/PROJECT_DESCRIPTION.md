@@ -21,15 +21,37 @@ It does not contain a JetValve implementation, computer vision, or automatic lid
 
 ## Architecture
 
-The desktop stack has five layers:
+The desktop stack is split into stable services and replaceable patterns:
 
-1. `app/gui_v3.py`, `grid.py`, and `spiral_grid.py` collect experiment inputs.
-2. `app/gcode_planner.py` owns numeric lifecycle and syringe state; `app/plugins/spiral.py` supplies spiral geometry.
-3. `app/gcode_workflow.py` validates and renders event templates stored in `config/config_gcode_workflow.json`.
-4. `app/grid_gcode.py`, `spiral_gcode.py`, and `gcode_generation.py` create atomic outputs and schema-version 2 JSON profiles.
-5. `app/runtime_job.py`, `machine_controller.py`, `machine_control_panel.py`, and `app/machine/` capture bounded immutable jobs, generate exact artifacts, validate live machine readiness/bounds, and coordinate Moonraker without blocking Tk.
+1. `app/core/` owns schemas, atomic storage, domain/geometry values,
+   workflow/plugin contracts, renderer-neutral canvas models, and the shared
+   G-code lifecycle.
+2. `app/plugins/grid/` and `app/plugins/spiral/` own their fields, editors,
+   numeric/event planning, saved and direct-run generation, canvas previews,
+   and workflow metadata/representative values.
+3. `app/plugin_runtime.py` discovers built-in and installed
+   `openspotter.patterns` entry points. `app/gui_v3.py` builds workspaces and
+   routes profiles, generation, previews, and direct-run capture through those
+   contracts.
+4. `app/gcode_workflow.py` validates and renders event templates from writable
+   runtime configuration. Generated files are atomic and use schema-version 3
+   plugin profiles, with legacy built-in arrays retained for migration.
+5. `app/runtime_job.py`, `machine_controller.py`, `machine_control_panel.py`,
+   and `app/machine/` capture bounded immutable plugin recipes, generate exact
+   artifacts, validate live machine readiness/bounds, and coordinate Moonraker
+   without blocking Tk.
 
-`app/canvas_drawer.py` previews the same recipe inputs around TCP X0/Y0. Unlinked values in `config/config_visual_objects.json` are display annotations only. Optional geometry links resolve from real program inputs; the visual geometry never constrains motion or enters planning directly, while a guarded reverse edit intentionally changes the linked program input.
+`app/canvas_drawer.py` combines plugin-owned preview primitives around TCP
+X0/Y0 without importing a concrete pattern. Unlinked values in
+`config/config_visual_objects.json` are display annotations only. Optional
+geometry links resolve from real program inputs; visual geometry never
+constrains motion or enters planning directly, while a guarded reverse edit
+intentionally changes the linked program input.
+
+The former top-level grid, spiral, G-code, planner, and helper modules remain
+export-only compatibility facades. New code imports the owning core or plugin
+module. See [Spotter-Control_v3/ARCHITECTURE.md](Spotter-Control_v3/ARCHITECTURE.md)
+and [Spotter-Control_v3/PLUGIN_DEVELOPMENT.md](Spotter-Control_v3/PLUGIN_DEVELOPMENT.md).
 
 The firmware side is modular Klipper configuration under `Spotter-Control_v3/hardware/klipper/config`. The custom `tcp_calibration.py` module must be installed into the printer's active Klipper source tree.
 

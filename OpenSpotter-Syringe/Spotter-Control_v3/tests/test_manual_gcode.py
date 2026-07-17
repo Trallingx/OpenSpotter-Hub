@@ -339,7 +339,7 @@ class ManualGcodeParserTests(unittest.TestCase):
                 "M117 Ready",
                 "RESPOND MSG=ready",
                 "QUERY_ENDSTOPS",
-                "OPENSPOTTER_HOME",
+                "HOMING",
                 "OPENSPOTTER_JOG AXIS=X DISTANCE=1 F=600",
                 "OPENSPOTTER_RUNTIME_STATUS",
             )

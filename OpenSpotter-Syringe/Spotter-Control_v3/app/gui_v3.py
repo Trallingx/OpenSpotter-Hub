@@ -1,7 +1,16 @@
+"""Registry-driven Tk desktop shell for OpenSpotter Control.
+
+The shell creates one generic workspace per application plugin and delegates
+editor construction, profiles, generation, previews, and direct-run capture
+through plugin contracts. Built-in-specific methods remain compatibility
+wrappers only.
+"""
+
 import os
 import traceback
 import json
 import math
+from dataclasses import dataclass
 from pathlib import Path
 
 from tkinter import messagebox, filedialog
@@ -9,15 +18,16 @@ import tkinter as tk
 from tkinter.ttk import Notebook, Style, Combobox
 
 
-from .SpotterFunctions import entries_to_dict, save_defaults, write_state
-from .input_configs import CLEANING_FIELDS, GLOBAL_FIELDS, GRID_FIELDS, SPIRAL_FIELDS, WASHING_FIELDS
+from .core.application_patterns import ApplicationPatternPlugin
+from .core.configuration import entries_to_dict, save_defaults, write_state
+from .core.geometry import acceptance_square
+from .input_configs import GLOBAL_FIELDS
 from .ui_theme import COLORS, FONTS, button_options, configure_ttk_styles, entry_options
-from .grid import Grid
-from .spiral_grid import SpiralGrid
 from .gcode_generation import save_file
 from .canvas_drawer import CanvasDrawer
 from .machine_parameters_window import MachineParametersWindow
 from .paths import GCODE_DIR, VISUAL_OBJECT_CONFIG, WORKFLOW_CONFIG
+from .plugin_runtime import application_plugins
 from .runtime_logging import get_logger, log_options
 from .visual_objects import VisualObjectStore
 
@@ -25,10 +35,26 @@ from .visual_objects import VisualObjectStore
 logger = get_logger("gui")
 
 
+@dataclass
+class _PatternWorkspace:
+    """Runtime UI state for one registered application pattern plugin."""
+
+    plugin: ApplicationPatternPlugin
+    notebook: Notebook
+    instances: dict
+
+
 class DropletGui(tk.Tk):
     def __init__(self, config_dir):
         super(DropletGui, self).__init__()
         self.config_dir = config_dir
+        self.pattern_plugins = application_plugins()
+        if not self.pattern_plugins:
+            raise RuntimeError("No desktop-capable pattern plugins are available")
+        self.pattern_plugins_by_id = {
+            plugin.manifest.id: plugin for plugin in self.pattern_plugins
+        }
+        self.pattern_workspaces = {}
         self._last_logged_workspace_mode = None
         self.visual_object_store = VisualObjectStore(
             os.path.join(self.config_dir, VISUAL_OBJECT_CONFIG.name)
@@ -60,15 +86,9 @@ class DropletGui(tk.Tk):
         self._closing = False
         self.canvas_frame = None
         self.canvas = None
-        self.grid_tabs = None
-        self.spiral_tabs = None
-        self.grid_tab_dict = {}  # Map 1-based grid number to grid object
-        self.spiral_tab_dict = {}  # Map 1-based spiral number to spiral object
 
         self.entry = []
         self.global_locked = tk.BooleanVar(master=self, value=True)
-        self.grid_count = 0
-        self.spiral_count = 0
 
         # Setting up basic UI structure
         self.title('OpenSpotter Control | Syringe Platform')
@@ -157,10 +177,12 @@ class DropletGui(tk.Tk):
             bg=COLORS['bg_secondary'],
         ).pack(anchor='w', pady=(0, 3))
 
-        self.workspace_mode_var = tk.StringVar(value='grid')
+        plugin_ids = [plugin.manifest.id for plugin in self.pattern_plugins]
+        default_plugin_id = plugin_ids[0]
+        self.workspace_mode_var = tk.StringVar(value=default_plugin_id)
         self.workspace_mode_combo = Combobox(
             mode_control,
-            values=['grid', 'spiral'],
+            values=plugin_ids,
             textvariable=self.workspace_mode_var,
             state='readonly',
             font=FONTS['small'],
@@ -191,7 +213,7 @@ class DropletGui(tk.Tk):
         )
         help_button.grid(row=0, column=4, padx=(4, 12), pady=10, sticky='e')
 
-        # ========== LEFT FRAME: Grid Tabs ==========
+        # ========== LEFT FRAME: Pattern workspaces ==========
         self.left_frame = tk.Frame(self.main_frame, bg=COLORS['bg_primary'])
         self.left_frame.grid(row=1, column=0, sticky='nsew', padx=(0, 4))
         self.left_frame.rowconfigure(0, weight=0)
@@ -200,7 +222,7 @@ class DropletGui(tk.Tk):
 
         self.left_label = tk.Label(
             self.left_frame,
-            text="GRID PARAMETERS",
+            text="PATTERN PARAMETERS",
             font=FONTS['label'],
             fg=COLORS['text_secondary'],
             bg=COLORS['bg_primary'],
@@ -208,12 +230,24 @@ class DropletGui(tk.Tk):
         )
         self.left_label.grid(row=0, column=0, sticky='ew', padx=2, pady=(2, 7))
 
-        # Create tabbed interface for grids
-        self.grid_tabs = Notebook(self.left_frame, style="Custom.TNotebook")
-        self.grid_tabs.grid(row=1, column=0, sticky='nsew')
-
-        self.spiral_tabs = Notebook(self.left_frame, style="Custom.TNotebook")
-        self.spiral_tabs.grid(row=1, column=0, sticky='nsew')
+        # Every application plugin receives the same tabbed workspace. Legacy
+        # attributes are populated only when a plugin declares those names.
+        for plugin in self.pattern_plugins:
+            spec = plugin.workspace
+            notebook = Notebook(
+                self.left_frame,
+                style="Custom.TNotebook",
+            )
+            notebook.grid(row=1, column=0, sticky="nsew")
+            instances = {}
+            self.pattern_workspaces[plugin.manifest.id] = _PatternWorkspace(
+                plugin=plugin,
+                notebook=notebook,
+                instances=instances,
+            )
+            setattr(self, spec.notebook_attribute, notebook)
+            setattr(self, spec.instance_map_attribute, instances)
+            setattr(self, spec.count_attribute, 0)
 
         # ========== MIDDLE FRAME: Canvas and Inputs ==========
         self.middle_frame = tk.Frame(self.main_frame, bg=COLORS['bg_primary'])
@@ -506,7 +540,7 @@ class DropletGui(tk.Tk):
                 return None, None
             try:
                 selected_number = notebook.index(notebook.select()) + 1
-            except (tk.TclError, ValueError):
+            except (AttributeError, tk.TclError, ValueError):
                 selected_number = min(object_map)
             return selected_number, object_map.get(selected_number)
 
@@ -545,26 +579,7 @@ class DropletGui(tk.Tk):
             for field in GLOBAL_FIELDS
         }
         try:
-            acceptance_left = (
-                float(global_values['x_cord_of_y_line'])
-                + (
-                    float(global_values['base_square_x'])
-                    - float(global_values['acceptance_square_x'])
-                ) / 2.0
-            )
-            acceptance_bottom = (
-                float(global_values['y_cord_of_x_line'])
-                + (
-                    float(global_values['base_square_y'])
-                    - float(global_values['acceptance_square_y'])
-                ) / 2.0
-            )
-            acceptance_values = {
-                'x_left': acceptance_left,
-                'x_right': acceptance_left + float(global_values['acceptance_square_x']),
-                'y_bottom': acceptance_bottom,
-                'y_top': acceptance_bottom + float(global_values['acceptance_square_y']),
-            }
+            acceptance_values = acceptance_square(global_values)
             for key, value in acceptance_values.items():
                 register_value(
                     f'acceptance.{key}',
@@ -577,67 +592,73 @@ class DropletGui(tk.Tk):
         except (KeyError, TypeError, ValueError):
             pass
 
-        grid_number, grid_obj = selected_object(self.grid_tabs, self.grid_tab_dict)
-        grid_source = f"Grid {grid_number} runtime inputs" if grid_obj else 'Grid field default'
-        register_fields('grid', GRID_FIELDS, getattr(grid_obj, 'grid_entry', None), grid_source)
-        register_value(
-            'grid.name',
-            grid_obj.get_grid_name() if grid_obj and hasattr(grid_obj, 'get_grid_name') else 'Grid',
-            'str',
-            '',
-            grid_source,
-            'Current grid display name.',
-        )
-        register_value(
-            'grid.color',
-            grid_obj.get_grid_color() if grid_obj and hasattr(grid_obj, 'get_grid_color') else 'green',
-            'str',
-            '',
-            grid_source,
-            'Current grid display color.',
-        )
-        register_fields(
-            'cleaning',
-            CLEANING_FIELDS,
-            getattr(grid_obj, 'cleaning_entry', None),
-            grid_source,
-        )
-        register_fields(
-            'washing',
-            WASHING_FIELDS,
-            getattr(grid_obj, 'washing_entry', None),
-            grid_source,
-        )
+        selected_patterns = {}
+        for plugin in self.pattern_plugins:
+            spec = plugin.workspace
+            notebook = getattr(self, spec.notebook_attribute, None)
+            instances = plugin.instance_map(self)
+            selected_number, editor = selected_object(notebook, instances)
+            selected_patterns[plugin.manifest.id] = (
+                selected_number,
+                editor,
+            )
+            groups = plugin.workflow_preview_groups(
+                editor,
+                int(selected_number or 0),
+            )
+            for group in groups:
+                register_fields(
+                    group.namespace,
+                    group.fields,
+                    group.entries,
+                    group.source,
+                )
+            source = (
+                "{} {} runtime inputs".format(
+                    plugin.manifest.display_name,
+                    selected_number,
+                )
+                if editor is not None
+                else "{} field default".format(
+                    plugin.manifest.display_name
+                )
+            )
+            name = (
+                editor.get_name()
+                if editor is not None and hasattr(editor, "get_name")
+                else plugin.manifest.display_name
+            )
+            color = (
+                editor.get_color()
+                if editor is not None and hasattr(editor, "get_color")
+                else spec.default_color(1)
+            )
+            register_value(
+                "{}.name".format(plugin.manifest.id),
+                name,
+                "str",
+                "",
+                source,
+                "Current {} display name.".format(
+                    plugin.manifest.display_name.lower()
+                ),
+            )
+            register_value(
+                "{}.color".format(plugin.manifest.id),
+                color,
+                "str",
+                "",
+                source,
+                "Current {} display color.".format(
+                    plugin.manifest.display_name.lower()
+                ),
+            )
 
-        spiral_number, spiral_obj = selected_object(self.spiral_tabs, self.spiral_tab_dict)
-        spiral_source = (
-            f"Spiral {spiral_number} runtime inputs" if spiral_obj else 'Spiral field default'
-        )
-        register_fields(
-            'spiral',
-            SPIRAL_FIELDS,
-            getattr(spiral_obj, 'spiral_entry', None),
-            spiral_source,
-        )
-        register_value(
-            'spiral.name',
-            spiral_obj.get_grid_name() if spiral_obj and hasattr(spiral_obj, 'get_grid_name') else 'Spiral',
-            'str',
-            '',
-            spiral_source,
-            'Current spiral display name.',
-        )
-        register_value(
-            'spiral.color',
-            spiral_obj.get_grid_color() if spiral_obj and hasattr(spiral_obj, 'get_grid_color') else 'orange',
-            'str',
-            '',
-            spiral_source,
-            'Current spiral display color.',
-        )
-
-        loading_namespace = 'spiral' if self._current_workspace_mode() == 'spiral' else 'grid'
-        active_number = spiral_number if loading_namespace == 'spiral' else grid_number
+        loading_namespace = self._current_workspace_mode()
+        active_number = selected_patterns.get(
+            loading_namespace,
+            (0, None),
+        )[0]
         register_value(
             'runtime.job.kind',
             loading_namespace,
@@ -711,32 +732,15 @@ class DropletGui(tk.Tk):
             self.entry,
             "Global machine parameters",
         )
-        for grid_number, grid_obj in self._iter_grids():
-            register(
-                f"grid.{grid_number}",
-                GRID_FIELDS,
-                getattr(grid_obj, "grid_entry", None),
-                f"Grid {grid_number}",
-            )
-            register(
-                f"cleaning.{grid_number}",
-                CLEANING_FIELDS,
-                getattr(grid_obj, "cleaning_entry", None),
-                f"Grid {grid_number} cleaning",
-            )
-            register(
-                f"washing.{grid_number}",
-                WASHING_FIELDS,
-                getattr(grid_obj, "washing_entry", None),
-                f"Grid {grid_number} washing",
-            )
-        for spiral_number, spiral_obj in self._iter_spirals():
-            register(
-                f"spiral.{spiral_number}",
-                SPIRAL_FIELDS,
-                getattr(spiral_obj, "spiral_entry", None),
-                f"Spiral {spiral_number}",
-            )
+        for plugin in self.pattern_plugins:
+            for index, editor in sorted(plugin.instance_map(self).items()):
+                for group in plugin.visual_binding_groups(editor, index):
+                    register(
+                        group.namespace,
+                        group.fields,
+                        group.entries,
+                        group.source,
+                    )
         return targets
 
     def _visual_binding_variable_provider(self):
@@ -831,59 +835,65 @@ class DropletGui(tk.Tk):
 
     def _current_workspace_mode(self):
         try:
-            return self.workspace_mode_var.get().strip().lower()
+            requested = self.workspace_mode_var.get().strip().lower()
         except Exception:
-            return 'grid'
+            requested = ""
+        plugin_map = getattr(self, "pattern_plugins_by_id", {})
+        if requested in plugin_map:
+            return requested
+        return next(iter(plugin_map), requested)
 
     def _switch_workspace_mode(self):
         mode = self._current_workspace_mode()
-        if mode == 'spiral':
+        workspaces = getattr(self, "pattern_workspaces", {})
+        active = workspaces.get(mode)
+        if active is None:
+            return
+        for plugin_id, workspace in workspaces.items():
             try:
-                self.grid_tabs.grid_remove()
+                if plugin_id == mode:
+                    workspace.notebook.grid()
+                else:
+                    workspace.notebook.grid_remove()
             except Exception:
                 pass
-            try:
-                self.spiral_tabs.grid()
-            except Exception:
-                pass
-            self.left_label.config(text='SPIRAL PARAMETERS')
-            self.add_object_button.config(text='ADD SPIRAL')
-            self.remove_object_button.config(text='REMOVE SPIRAL')
-        else:
-            try:
-                self.spiral_tabs.grid_remove()
-            except Exception:
-                pass
-            try:
-                self.grid_tabs.grid()
-            except Exception:
-                pass
-            self.left_label.config(text='GRID PARAMETERS')
-            self.add_object_button.config(text='ADD GRID')
-            self.remove_object_button.config(text='REMOVE GRID')
+        spec = active.plugin.workspace
+        self.left_label.config(text=spec.parameter_title)
+        self.add_object_button.config(text=spec.add_button_text)
+        self.remove_object_button.config(text=spec.remove_button_text)
         if mode != self._last_logged_workspace_mode:
             log_options(
                 logger,
                 "workspace.mode_changed",
                 mode=mode,
-                grid_count=self.grid_count,
-                spiral_count=self.spiral_count,
+                pattern_counts={
+                    plugin_id: len(workspace.instances)
+                    for plugin_id, workspace in workspaces.items()
+                },
             )
             self._last_logged_workspace_mode = mode
 
     def show_help(self):
+        plugin_help = "\n".join(
+            "- {}: {}".format(
+                plugin.manifest.display_name,
+                plugin.manifest.description or "pattern workspace",
+            )
+            for plugin in self.pattern_plugins
+        )
         message = (
-            'Grid mode manages row/column spotting tabs.\n\n'
-            'Spiral mode manages spiral pattern tabs with drop or continuous extrusion.\n\n'
-            'Use the dropdown at the top to switch between modes, then add or remove tabs for that mode.\n\n'
+            "Installed pattern plugins:\n"
+            f"{plugin_help}\n\n"
+            "Use the dropdown at the top to switch workspaces, then add or "
+            "remove recipe tabs for the selected plugin.\n\n"
             'Machine Control connects to Moonraker, generates an immutable snapshot of the current mode, '
             'uploads the exact G-code artifact, and starts it through virtual SD. Pause/Resume and Stop '
             'control that virtual-SD job. Emergency Stop and manual M112 use Moonraker’s independent '
-            'HTTP emergency-stop endpoint. Guarded controls require the current OPENSPOTTER_CONTRACT_V3 '
+            'HTTP emergency-stop endpoint. Guarded controls require the current OPENSPOTTER_CONTRACT_V4 '
             'firmware macros and stay disabled when they are missing or stale.\n\n'
             'XYZ jog requires Klippy ready/idle, inactive virtual SD, homed XYZ, needle offsets and '
-            'bed mesh off, and a feed of at least 30 mm/min. Safe Home uses the reviewed sensorless '
-            'settle, release, and physical-clearance sequence. Live Z is '
+            'bed mesh off, and a feed of at least 30 mm/min. Run Homing sends the operator-owned '
+            'HOMING firmware macro as one command; OpenSpotter does not define its movements. Live Z is '
             'available only during an active job with needle offsets enabled. The G-code cursor is '
             'Moonraker’s virtual-SD read/queued position; it does not prove that physical motion is complete.\n\n'
             'Manual / Console parses a small allowlist: diagnostic queries plus bounded G90/G91 and '
@@ -990,14 +1000,10 @@ class DropletGui(tk.Tk):
             self.destroy()
 
     def _add_active_object(self):
-        if self._current_workspace_mode() == 'spiral':
-            return self.instance_spiral()
-        return self.instance_grid()
+        return self.instance_pattern(self._current_workspace_mode())
 
     def _remove_active_object(self):
-        if self._current_workspace_mode() == 'spiral':
-            return self.subtract_spiral()
-        return self.subtract_grid()
+        return self.subtract_pattern(self._current_workspace_mode())
 
     def _run_action(self, action, action_name="Action"):
         """Unified action runner for UI callbacks with consistent error popups."""
@@ -1023,223 +1029,230 @@ class DropletGui(tk.Tk):
             logger.exception("ui.action_failed | action=%s", action_name)
             open_secondary_window(f"{action_name} failed:\n{exc}", title="Unexpected Error")
 
+    def _plugin_for(self, plugin_id):
+        """Return a registered desktop plugin by its stable ID."""
+
+        plugin_map = getattr(self, "pattern_plugins_by_id", None)
+        if not plugin_map:
+            plugin_map = {
+                plugin.manifest.id: plugin
+                for plugin in application_plugins()
+            }
+        plugin = plugin_map.get(plugin_id)
+        if plugin is None:
+            raise KeyError("Unknown pattern plugin: {!r}".format(plugin_id))
+        return plugin
+
+    def _workspace_for(self, plugin_id):
+        workspace = getattr(self, "pattern_workspaces", {}).get(plugin_id)
+        if workspace is None:
+            raise KeyError(
+                "Pattern workspace {!r} is not initialized".format(plugin_id)
+            )
+        return workspace
+
+    def _iter_patterns(self, plugin_id):
+        plugin = self._plugin_for(plugin_id)
+        instances = plugin.instance_map(self)
+        for index in sorted(instances):
+            yield index, instances[index]
+
     def _iter_grids(self):
-        for grid_number in sorted(self.grid_tab_dict.keys()):
-            yield grid_number, self.grid_tab_dict[grid_number]
+        """Compatibility iterator for the built-in grid plugin."""
+
+        yield from self._iter_patterns("grid")
 
     def _iter_spirals(self):
-        for spiral_number in sorted(self.spiral_tab_dict.keys()):
-            yield spiral_number, self.spiral_tab_dict[spiral_number]
+        """Compatibility iterator for the built-in spiral plugin."""
+
+        yield from self._iter_patterns("spiral")
+
+    def _update_pattern_tab_title(self, plugin_id, index, title):
+        workspace = self._workspace_for(plugin_id)
+        tab_index = int(index) - 1
+        if tab_index < 0 or tab_index >= len(workspace.notebook.tabs()):
+            return
+        fallback = "{} {}".format(
+            workspace.plugin.manifest.display_name,
+            index,
+        )
+        workspace.notebook.tab(
+            tab_index,
+            text=str(title).strip() or fallback,
+        )
 
     def _update_grid_tab_title(self, grid_number, title):
-        tab_index = grid_number - 1
-        if tab_index < 0 or tab_index >= len(self.grid_tabs.tabs()):
-            return
-        cleaned = str(title).strip() or f"Grid {grid_number}"
-        self.grid_tabs.tab(tab_index, text=cleaned)
+        self._update_pattern_tab_title("grid", grid_number, title)
 
-    def _get_max_grid_count(self):
+    def _update_spiral_tab_title(self, spiral_number, title):
+        self._update_pattern_tab_title("spiral", spiral_number, title)
+
+    def _get_max_pattern_count(self):
         default_max = 6
         if not self.entry:
             return default_max
         try:
             global_dict = entries_to_dict(self.entry, GLOBAL_FIELDS)
-            max_count = int(global_dict.get('max_grid_count', default_max))
+            max_count = int(global_dict.get("max_grid_count", default_max))
         except Exception:
             max_count = default_max
         return max(1, max_count)
 
+    def _get_max_grid_count(self):
+        """Compatibility alias for the former grid-specific helper."""
+
+        return self._get_max_pattern_count()
+
+    def instance_pattern(self, plugin_id):
+        """Create one editor through its registered plugin factory."""
+
+        workspace = self._workspace_for(plugin_id)
+        plugin = workspace.plugin
+        spec = plugin.workspace
+        maximum = self._get_max_pattern_count()
+        active_count = len(workspace.instances)
+        if active_count >= maximum:
+            log_options(
+                logger,
+                "pattern.add_blocked",
+                plugin_id=plugin_id,
+                active_count=active_count,
+                maximum=maximum,
+            )
+            open_secondary_window(
+                "Cannot add more {} recipes (maximum {})".format(
+                    plugin.manifest.display_name,
+                    maximum,
+                )
+            )
+            return None
+
+        index = active_count + 1
+        tab_frame = tk.Frame(workspace.notebook)
+        workspace.notebook.add(
+            tab_frame,
+            text="{} {}".format(plugin.manifest.display_name, index),
+        )
+        editor = plugin.create_editor(
+            tab_frame,
+            self.config_dir,
+            index,
+            on_name_changed=lambda name, pid=plugin_id, number=index: (
+                self._update_pattern_tab_title(pid, number, name)
+            ),
+        )
+        workspace.instances[index] = editor
+        setattr(self, spec.count_attribute, len(workspace.instances))
+        display_name = (
+            editor.get_name()
+            if hasattr(editor, "get_name")
+            else "{} {}".format(plugin.manifest.display_name, index)
+        )
+        self._update_pattern_tab_title(plugin_id, index, display_name)
+        log_options(
+            logger,
+            "pattern.added",
+            plugin_id=plugin_id,
+            pattern_index=index,
+            config_path=plugin.resolve_config_path(self.config_dir, index),
+            active_count=len(workspace.instances),
+            maximum=maximum,
+        )
+        return editor
 
     def instance_grid(self):
-        """Create a new grid in a new tab."""
-        max_grid_count = self._get_max_grid_count()
-        if self.grid_count >= max_grid_count:
-            log_options(
-                logger,
-                "grid.add_blocked",
-                active_count=self.grid_count,
-                maximum=max_grid_count,
-            )
-            open_secondary_window(f"Cannot add more grids (maximum {max_grid_count})")
-            return
+        """Compatibility wrapper for the built-in grid plugin."""
 
-        grid_number = self.grid_count + 1
-
-        # Create new tab
-        tab_frame = tk.Frame(self.grid_tabs)
-        self.grid_tabs.add(tab_frame, text=f"Grid {grid_number}")
-        
-        # Create Grid object within the tab
-        config_file = os.path.join(self.config_dir, f"config_grid_{grid_number}.json")
-        if not os.path.exists(config_file):
-            config_file = os.path.join(self.config_dir, "config_grid_1.json")
-        grid_colors = ["lightgreen", "orange", "lightblue", "gold", "violet", "salmon"]
-        
-        grid_obj = Grid(
-            tab_frame,
-            0,
-            0,
-            config_file,
-            grid_colors[(grid_number - 1) % len(grid_colors)],
-            self.config_dir,
-            grid_number=grid_number,
-            on_name_changed=lambda name, gn=grid_number: self._update_grid_tab_title(gn, name),
-        )
-        
-        self.grid_tab_dict[grid_number] = grid_obj
-        self.grid_count = len(self.grid_tab_dict)
-        self._update_grid_tab_title(grid_number, grid_obj.get_grid_name())
-        log_options(
-            logger,
-            "grid.added",
-            grid_number=grid_number,
-            config_path=config_file,
-            active_count=self.grid_count,
-            maximum=max_grid_count,
-        )
+        return self.instance_pattern("grid")
 
     def instance_spiral(self):
-        """Create a new spiral object in a new tab."""
-        max_spiral_count = self._get_max_grid_count()
-        if self.spiral_count >= max_spiral_count:
-            log_options(
-                logger,
-                "spiral.add_blocked",
-                active_count=self.spiral_count,
-                maximum=max_spiral_count,
+        """Compatibility wrapper for the built-in spiral plugin."""
+
+        return self.instance_pattern("spiral")
+
+    def subtract_pattern(self, plugin_id):
+        """Remove the final editor from one plugin workspace."""
+
+        workspace = self._workspace_for(plugin_id)
+        plugin = workspace.plugin
+        spec = plugin.workspace
+        if not workspace.instances:
+            logger.info(
+                "pattern.remove_blocked | plugin_id=%s | reason=no_patterns",
+                plugin_id,
             )
-            open_secondary_window(f"Cannot add more spirals (maximum {max_spiral_count})")
-            return
+            open_secondary_window(
+                "No {} recipes to remove".format(
+                    plugin.manifest.display_name
+                )
+            )
+            return None
 
-        spiral_number = self.spiral_count + 1
-        tab_frame = tk.Frame(self.spiral_tabs)
-        self.spiral_tabs.add(tab_frame, text=f"Spiral {spiral_number}")
-
-        config_file = os.path.join(self.config_dir, f"config_spiral_{spiral_number}.json")
-        if not os.path.exists(config_file):
-            config_file = os.path.join(self.config_dir, "config_spiral_1.json")
-        spiral_colors = ["lightgreen", "orange", "lightblue", "gold", "violet", "salmon"]
-
-        spiral_obj = SpiralGrid(
-            tab_frame,
-            config_file,
-            spiral_colors[(spiral_number - 1) % len(spiral_colors)],
-            self.config_dir,
-            spiral_number=spiral_number,
-            on_name_changed=lambda name, sn=spiral_number: self._update_spiral_tab_title(sn, name),
-        )
-
-        self.spiral_tab_dict[spiral_number] = spiral_obj
-        self.spiral_count = len(self.spiral_tab_dict)
-        self._update_spiral_tab_title(spiral_number, spiral_obj.get_grid_name())
+        last_index = max(workspace.instances)
+        workspace.notebook.forget(last_index - 1)
+        workspace.instances.pop(last_index, None)
+        setattr(self, spec.count_attribute, len(workspace.instances))
         log_options(
             logger,
-            "spiral.added",
-            spiral_number=spiral_number,
-            config_path=config_file,
-            active_count=self.spiral_count,
-            maximum=max_spiral_count,
+            "pattern.removed",
+            plugin_id=plugin_id,
+            pattern_index=last_index,
+            active_count=len(workspace.instances),
         )
-
-    def subtract_spiral(self):
-        """Remove the last spiral tab."""
-        if self.spiral_count == 0:
-            logger.info("spiral.remove_blocked | reason=no_spirals")
-            open_secondary_window("No spirals to remove")
-            return
-
-        last_spiral_number = self.spiral_count
-        self.spiral_tabs.forget(last_spiral_number - 1)
-        self.spiral_tab_dict.pop(last_spiral_number, None)
-        self.spiral_count = len(self.spiral_tab_dict)
-        log_options(
-            logger,
-            "spiral.removed",
-            spiral_number=last_spiral_number,
-            active_count=self.spiral_count,
-        )
-        try:
-            if hasattr(self, 'canvas_drawer') and self.canvas_drawer:
-                self.canvas_drawer.refresh()
-        except Exception:
-            pass
+        canvas_drawer = getattr(self, "canvas_drawer", None)
+        if canvas_drawer is not None:
+            try:
+                canvas_drawer.refresh()
+            except Exception:
+                logger.exception("canvas.refresh_after_pattern_remove_failed")
+        return last_index
 
     def subtract_grid(self):
-        """Remove the last grid tab."""
-        if self.grid_count == 0:
-            logger.info("grid.remove_blocked | reason=no_grids")
-            open_secondary_window("No grids to remove")
-            return
+        """Compatibility wrapper for the built-in grid plugin."""
 
-        # Always remove the last grid to maintain consistent grid numbering
-        last_grid_number = self.grid_count
-        
-        # Remove the last tab
-        self.grid_tabs.forget(last_grid_number - 1)
-        
-        # Clean up grid references
-        self.grid_tab_dict.pop(last_grid_number, None)
-        self.grid_count = len(self.grid_tab_dict)
-        log_options(
-            logger,
-            "grid.removed",
-            grid_number=last_grid_number,
-            active_count=self.grid_count,
-        )
-        try:
-            if hasattr(self, 'canvas_drawer') and self.canvas_drawer:
-                self.canvas_drawer.refresh()
-        except Exception:
-            pass
+        return self.subtract_pattern("grid")
 
-    def _update_spiral_tab_title(self, spiral_number, title):
-        try:
-            self.spiral_tabs.tab(spiral_number - 1, text=title)
-        except Exception:
-            pass
+    def subtract_spiral(self):
+        """Compatibility wrapper for the built-in spiral plugin."""
+
+        return self.subtract_pattern("spiral")
 
     def check_saves(self):
+        pattern_counts = {
+            plugin_id: len(workspace.instances)
+            for plugin_id, workspace in self.pattern_workspaces.items()
+        }
         log_options(
             logger,
             "defaults.save_started",
-            grid_count=self.grid_count,
-            spiral_count=self.spiral_count,
+            pattern_counts=pattern_counts,
         )
-        # Save counts for both collections
-        write_state({"grid_count": self.grid_count, "spiral_count": self.spiral_count}, self.config_dir)
+        state_payload = {
+            "schema_version": 2,
+            "patterns": dict(pattern_counts),
+        }
+        # Keep legacy count keys while schema-v2 readers migrate.
+        for workspace in self.pattern_workspaces.values():
+            state_payload[workspace.plugin.workspace.state_count_key] = len(
+                workspace.instances
+            )
+        write_state(state_payload, self.config_dir)
 
-        # Convert global entries to dict
         global_dict = entries_to_dict(self.entry, GLOBAL_FIELDS)
         global_dict.update(self._get_canvas_parameter_values())
-        save_defaults(os.path.join(self.config_dir, "config_global.json"), global_dict)
+        save_defaults(
+            os.path.join(self.config_dir, "config_global.json"),
+            global_dict,
+        )
 
-        # Save each grid using dicts for grid, cleaning, washing
-        for grid_number, grid_obj in self._iter_grids():
-            cfg_path = os.path.join(self.config_dir, f"config_grid_{grid_number}.json")
-
-            grid_dict = entries_to_dict(grid_obj.grid_entry, GRID_FIELDS)
-            cleaning_dict = entries_to_dict(grid_obj.cleaning_entry, CLEANING_FIELDS)
-            washing_dict = entries_to_dict(grid_obj.washing_entry, WASHING_FIELDS)
-            grid_state_dict = {
-                "grid_name": grid_obj.get_grid_name(),
-                "grid_color": grid_obj.get_grid_color(),
-                "cleaning_enabled": bool(grid_obj.cleaning_enabled.get()),
-                "washing_enabled": bool(grid_obj.washing_enabled.get()),
-                "wash_after_loading": bool(grid_obj.wash_after_loading_enabled.get()),
-                "final_rinse_enabled": bool(grid_obj.final_rinse_enabled.get()),
-                "final_rinse_add_cleaning_grid": bool(grid_obj.final_rinse_add_cleaning_grid.get()),
-            }
-
-            save_defaults(cfg_path, grid_dict, cleaning_dict, washing_dict, grid_state_dict)
-
-        for spiral_number, spiral_obj in self._iter_spirals():
-            cfg_path = os.path.join(self.config_dir, f"config_spiral_{spiral_number}.json")
-            spiral_dict = spiral_obj.save_defaults_dict()
-            spiral_state_dict = {
-                "spiral_name": spiral_obj.get_grid_name(),
-                "spiral_color": spiral_obj.get_grid_color(),
-            }
-            save_defaults(cfg_path, spiral_dict, spiral_state_dict)
+        for workspace in self.pattern_workspaces.values():
+            plugin = workspace.plugin
+            for index, editor in sorted(workspace.instances.items()):
+                plugin.persist_editor_defaults(
+                    editor,
+                    self.config_dir,
+                    index,
+                )
         logger.info("defaults.save_completed")
 
     def _get_canvas_parameter_values(self):
@@ -1347,67 +1360,93 @@ class DropletGui(tk.Tk):
             if field.key in values_dict:
                 self._set_entry_value(entry_widget, values_dict[field.key], field)
 
+    def _reset_patterns(self, plugin_id):
+        """Clear one workspace so a profile can rebuild exact saved state."""
+
+        workspace = self._workspace_for(plugin_id)
+        for tab_id in workspace.notebook.tabs():
+            workspace.notebook.forget(tab_id)
+        workspace.instances.clear()
+        setattr(self, workspace.plugin.workspace.count_attribute, 0)
+
     def _reset_grids(self):
-        # Remove all tabs and clear map so we can rebuild exact saved state.
-        for tab_id in self.grid_tabs.tabs():
-            self.grid_tabs.forget(tab_id)
-        self.grid_tab_dict.clear()
-        self.grid_count = 0
+        """Compatibility wrapper for the built-in grid plugin."""
+
+        self._reset_patterns("grid")
 
     def _reset_spirals(self):
-        for tab_id in self.spiral_tabs.tabs():
-            self.spiral_tabs.forget(tab_id)
-        self.spiral_tab_dict.clear()
-        self.spiral_count = 0
+        """Compatibility wrapper for the built-in spiral plugin."""
+
+        self._reset_patterns("spiral")
 
     def _parse_generation_json_file(self, filepath):
-        """Load and structurally validate a canonical settings profile."""
+        """Load and normalize legacy or plugin-oriented settings profiles."""
         with open(filepath, "r", encoding="utf-8") as profile_file:
             profile = json.load(profile_file)
 
         if not isinstance(profile, dict):
             raise ValueError("Settings profile must contain a JSON object")
+        global_settings = profile.get("global_settings")
+        if not isinstance(global_settings, dict):
+            raise ValueError("'global_settings' must be a JSON object")
 
-        expected_sections = {
-            "global_settings": (dict, "JSON object"),
-            "grid_settings": (list, "JSON array"),
-            "spiral_settings": (list, "JSON array"),
-        }
-        for section_name, (expected_type, type_label) in expected_sections.items():
-            if section_name not in profile:
-                raise ValueError(f"Settings profile is missing '{section_name}'")
-            section = profile[section_name]
-            if not isinstance(section, expected_type):
-                raise ValueError(f"'{section_name}' must be a {type_label}")
-
-        for index, grid_state in enumerate(profile.get("grid_settings", []), start=1):
-            if not isinstance(grid_state, dict):
-                raise ValueError(f"Grid {index} settings must be a JSON object")
-            for subsection in ("grid", "cleaning", "washing"):
-                values = grid_state.get(subsection, {})
-                if not isinstance(values, dict):
+        entries_by_plugin = {}
+        patterns = profile.get("patterns")
+        if patterns is not None:
+            if not isinstance(patterns, list):
+                raise ValueError("'patterns' must be a JSON array")
+            for position, pattern in enumerate(patterns, start=1):
+                if not isinstance(pattern, dict):
                     raise ValueError(
-                        f"Grid {index} '{subsection}' settings must be a JSON object"
+                        "Pattern {} must be a JSON object".format(position)
                     )
-            for flag in (
-                "cleaning_enabled",
-                "washing_enabled",
-                "wash_after_loading",
-                "final_rinse_enabled",
-                "final_rinse_add_cleaning_grid",
-            ):
-                if flag in grid_state and not isinstance(grid_state[flag], bool):
-                    raise ValueError(f"Grid {index} '{flag}' setting must be true or false")
+                plugin_id = str(pattern.get("plugin_id", "")).strip().lower()
+                if not plugin_id:
+                    raise ValueError(
+                        "Pattern {} is missing 'plugin_id'".format(position)
+                    )
+                if plugin_id in entries_by_plugin:
+                    raise ValueError(
+                        "Pattern plugin {!r} appears more than once".format(
+                            plugin_id
+                        )
+                    )
+                if plugin_id not in self.pattern_plugins_by_id:
+                    raise ValueError(
+                        "Profile requires unavailable pattern plugin {!r}".format(
+                            plugin_id
+                        )
+                    )
+                recipes = pattern.get("recipes", [])
+                if not isinstance(recipes, list):
+                    raise ValueError(
+                        "Pattern {!r} 'recipes' must be a JSON array".format(
+                            plugin_id
+                        )
+                    )
+                entries_by_plugin[plugin_id] = recipes
+        else:
+            for plugin in self.pattern_plugins:
+                profile_key = plugin.workspace.profile_key
+                recipes = profile.get(profile_key, [])
+                if not isinstance(recipes, list):
+                    raise ValueError(
+                        "{!r} must be a JSON array".format(profile_key)
+                    )
+                entries_by_plugin[plugin.manifest.id] = recipes
 
-        for index, spiral_state in enumerate(profile.get("spiral_settings", []), start=1):
-            if not isinstance(spiral_state, dict):
-                raise ValueError(f"Spiral {index} settings must be a JSON object")
-            if not isinstance(spiral_state.get("spiral", {}), dict):
-                raise ValueError(f"Spiral {index} 'spiral' settings must be a JSON object")
+        normalized_entries = {}
+        for plugin_id, recipes in entries_by_plugin.items():
+            plugin = self._plugin_for(plugin_id)
+            normalized_entries[plugin_id] = [
+                plugin.validate_profile_entry(recipe, index)
+                for index, recipe in enumerate(recipes, start=1)
+            ]
 
         if "workflow" in profile and not isinstance(profile["workflow"], dict):
             raise ValueError("'workflow' must be a JSON object")
 
+        profile["_pattern_entries"] = normalized_entries
         return profile
 
     def load_generation_config(self):
@@ -1456,49 +1495,31 @@ class DropletGui(tk.Tk):
         if global_settings:
             self._set_field_entries(self.entry, GLOBAL_FIELDS, global_settings)
 
-        grid_settings = parsed.get("grid_settings", [])
-        spiral_settings = parsed.get("spiral_settings", [])
-        self._reset_grids()
-        for _ in range(len(grid_settings)):
-            self.instance_grid()
-        self._reset_spirals()
-        for _ in range(len(spiral_settings)):
-            self.instance_spiral()
-
-        for idx, grid_state in enumerate(grid_settings, start=1):
-            grid_obj = self.grid_tab_dict.get(idx)
-            if grid_obj is None:
-                continue
-
-            self._set_field_entries(grid_obj.grid_entry, GRID_FIELDS, grid_state.get("grid", {}))
-            self._set_field_entries(grid_obj.cleaning_entry, CLEANING_FIELDS, grid_state.get("cleaning", {}))
-            self._set_field_entries(grid_obj.washing_entry, WASHING_FIELDS, grid_state.get("washing", {}))
-
-            if "grid_name" in grid_state:
-                grid_obj.set_grid_name(grid_state.get("grid_name", f"Grid {idx}"))
-            if "grid_color" in grid_state:
-                grid_obj.set_grid_color(grid_state.get("grid_color", "green"))
-            self._update_grid_tab_title(idx, grid_obj.get_grid_name())
-
-            grid_obj.cleaning_enabled.set(bool(grid_state.get("cleaning_enabled", False)))
-            grid_obj.washing_enabled.set(bool(grid_state.get("washing_enabled", False)))
-            grid_obj.wash_after_loading_enabled.set(bool(grid_state.get("wash_after_loading", False)))
-            grid_obj.final_rinse_enabled.set(bool(grid_state.get("final_rinse_enabled", False)))
-            grid_obj.final_rinse_add_cleaning_grid.set(bool(grid_state.get("final_rinse_add_cleaning_grid", False)))
-
-            grid_obj._toggle_cleaning_inputs()
-            grid_obj._toggle_washing_inputs()
-            grid_obj._toggle_final_rinse_inputs()
-
-        for idx, spiral_state in enumerate(spiral_settings, start=1):
-            spiral_obj = self.spiral_tab_dict.get(idx)
-            if spiral_obj is None:
-                continue
-            self._set_field_entries(spiral_obj.spiral_entry, SPIRAL_FIELDS, spiral_state.get("spiral", {}))
-            if "spiral_name" in spiral_state:
-                spiral_obj.set_grid_name(spiral_state.get("spiral_name", f"Spiral {idx}"))
-            if "spiral_color" in spiral_state:
-                spiral_obj.set_grid_color(spiral_state.get("spiral_color", "green"))
+        pattern_entries = parsed.get("_pattern_entries", {})
+        for plugin_id in self.pattern_plugins_by_id:
+            self._reset_patterns(plugin_id)
+            plugin = self._plugin_for(plugin_id)
+            recipes = pattern_entries.get(plugin_id, [])
+            for index, recipe in enumerate(recipes, start=1):
+                editor = self.instance_pattern(plugin_id)
+                if editor is None:
+                    raise ValueError(
+                        "Profile exceeds the active pattern-count limit"
+                    )
+                plugin.restore_profile_entry(editor, recipe)
+                display_name = (
+                    editor.get_name()
+                    if hasattr(editor, "get_name")
+                    else "{} {}".format(
+                        plugin.manifest.display_name,
+                        index,
+                    )
+                )
+                self._update_pattern_tab_title(
+                    plugin_id,
+                    index,
+                    display_name,
+                )
 
         # Respect current lock state after values are loaded.
         self._update_global_fields_state()
@@ -1515,8 +1536,10 @@ class DropletGui(tk.Tk):
             logger,
             "profile.load_completed",
             path=filepath,
-            grid_count=self.grid_count,
-            spiral_count=self.spiral_count,
+            pattern_counts={
+                plugin_id: len(workspace.instances)
+                for plugin_id, workspace in self.pattern_workspaces.items()
+            },
             workflow_replaced=workflow_store is not None,
             global_parameters_locked=bool(self.global_locked.get()),
         )

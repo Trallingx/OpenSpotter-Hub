@@ -1,0 +1,33 @@
+* text=auto
+
+.gitattributes text eol=lf
+.gitignore text eol=lf
+*.py text eol=lf
+*.pyi text eol=lf
+*.in text eol=lf
+*.spec text eol=lf
+*.toml text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.cfg text eol=lf
+*.conf text eol=lf
+*.gcode text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.sh text eol=lf
+*.ps1 text eol=crlf
+
+*.3mf binary
+*.dxf binary
+*.jpeg binary
+*.JPEG binary
+*.jpg binary
+*.JPG binary
+*.omx binary
+*.pdf binary
+*.PDF binary
+*.png binary
+*.prt binary
+*.stl binary
+*.xlsx binary
