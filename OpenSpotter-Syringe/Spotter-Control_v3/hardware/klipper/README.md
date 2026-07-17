@@ -40,7 +40,7 @@ Do not deploy `remote_control.cfg` alone. At minimum, copy the current `hardware
 
 In the desktop **CONFIG** window, enter the Moonraker host, port, protocol, optional route prefix, and API key. Local `config/config_moonraker.json` is ignored by Git; keep credentials out of the key-free example. A fixed IPv4 address may connect more quickly and reliably than `.local` on a Pi Zero/Windows mDNS combination.
 
-The shipped `moonraker.conf` trusts localhost only. Add the exact control-PC address, or a dedicated isolated machine subnet, to `trusted_clients`; do not restore blanket `10/8`, `172.16/12`, or `192.168/16` trust on a shared lab LAN. Restrict/firewall TCP port 7125 to intended control hosts. A desktop API key does not protect endpoints reached by a client Moonraker already considers trusted.
+The shipped `moonraker.conf` trusts localhost plus all IPv4 private and link-local client ranges, allowing Mainsail and OpenSpotter to connect from any PC on the local/private network without an API key. Public Internet addresses are not trusted. Keep the printer network isolated and do not expose TCP port 7125 through router port forwarding.
 
 Do not copy calibrated `saved_vars.cfg` values from another machine.
 

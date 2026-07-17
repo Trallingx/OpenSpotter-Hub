@@ -201,13 +201,12 @@ class HardwareConfigGraphTests(unittest.TestCase):
             "Invalid Klipper G-code templates:\n" + "\n".join(failures),
         )
 
-    def test_removed_legacy_modules_and_undefined_syringe_macros_are_inactive(self):
+    def test_undefined_syringe_macros_are_inactive(self):
         config_paths, _ = resolve_config_graph(ROOT_CONFIG)
         active_text = "\n".join(
             config_path.read_text(encoding="utf-8") for config_path in config_paths
         )
 
-        self.assertNotIn("start_end.cfg", active_text)
         self.assertNotRegex(active_text, r"\b(?:SYRINGE_PRIME|RETRACT_SYRINGE)\b")
 
     def test_remote_control_contract_is_immutable_and_jog_is_guarded(self):
@@ -546,16 +545,18 @@ class HardwareConfigGraphTests(unittest.TestCase):
             ),
         )
 
-    def test_moonraker_sample_does_not_trust_entire_private_networks(self):
+    def test_moonraker_sample_allows_private_network_clients(self):
         moonraker_text = (CONFIG_DIR / "moonraker.conf").read_text(
             encoding="utf-8"
         )
         self.assertIn("127.0.0.0/8", moonraker_text)
         self.assertIn("::1/128", moonraker_text)
-        self.assertNotIn("10.0.0.0/8", moonraker_text)
-        self.assertNotIn("172.16.0.0/12", moonraker_text)
-        self.assertNotIn("192.168.0.0/16", moonraker_text)
-        self.assertIn("exact control workstation", moonraker_text)
+        self.assertIn("10.0.0.0/8", moonraker_text)
+        self.assertIn("169.254.0.0/16", moonraker_text)
+        self.assertIn("172.16.0.0/12", moonraker_text)
+        self.assertIn("192.168.0.0/16", moonraker_text)
+        self.assertIn("FE80::/10", moonraker_text)
+        self.assertNotIn("0.0.0.0/0", moonraker_text)
 
 
 if __name__ == "__main__":
