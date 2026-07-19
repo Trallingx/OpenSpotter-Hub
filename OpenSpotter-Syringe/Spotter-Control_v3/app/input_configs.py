@@ -23,8 +23,10 @@ GLOBAL_FIELDS: List[Field] = [
 
     Field("tuning_offset_x", "First Spot X-offset", "mm", tab="Geometry"),
     Field("tuning_offset_y", "First Spot Y-offset", "mm", tab="Geometry"),
-    Field("acceptance_square_x", "Acceptance Square X", "mm", tab="Geometry"),
-    Field("acceptance_square_y", "Acceptance Square Y", "mm", tab="Geometry"),
+    Field("acceptance_square_left", "Acceptance Square Left", "mm", default=36.0, tab="Geometry"),
+    Field("acceptance_square_top", "Acceptance Square Top", "mm", default=-25.0, tab="Geometry"),
+    Field("acceptance_square_width", "Acceptance Square Width", "mm", default=150.0, tab="Geometry"),
+    Field("acceptance_square_height", "Acceptance Square Height", "mm", default=150.0, tab="Geometry"),
     Field("mesh_points", "Mesh Points (3 to 10)", "int", default=3, tab="Geometry"),
     # The persisted key predates the plugin architecture; the operator-facing
     # label reflects that the limit now applies to every pattern workspace.

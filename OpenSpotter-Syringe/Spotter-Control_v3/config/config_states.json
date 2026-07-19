@@ -1,4 +1,9 @@
 {
+  "schema_version": 2,
+  "patterns": {
+    "grid": 1,
+    "spiral": 0
+  },
   "grid_count": 1,
   "spiral_count": 0
 }

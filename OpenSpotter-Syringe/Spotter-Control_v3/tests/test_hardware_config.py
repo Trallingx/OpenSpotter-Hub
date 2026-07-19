@@ -109,16 +109,13 @@ class HardwareConfigGraphTests(unittest.TestCase):
         self.assertIsNotNone(stepper_y)
         self.assertRegex(stepper_y.group(0), r"(?m)^dir_pin:\s*!PL1\s*$")
 
-    def test_needle_offsets_require_positive_down_tcp_coordinate_version(self):
+    def test_needle_offsets_require_tcp_ready_only(self):
         movement_text = (CONFIG_DIR / "movement_safety.cfg").read_text(
             encoding="utf-8"
         )
 
-        self.assertRegex(
-            movement_text,
-            r"(?m)^variable_required_tcp_coordinate_version:\s*2\s*$",
-        )
-        self.assertIn("svv.tcp_coordinate_version", movement_text)
+        self.assertNotIn("variable_required_tcp_coordinate_version", movement_text)
+        self.assertIn("tcp_ready", movement_text)
 
     def test_active_include_graph_is_complete_and_has_unique_sections(self):
         config_paths, missing_includes = resolve_config_graph(ROOT_CONFIG)

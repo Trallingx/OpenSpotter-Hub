@@ -562,17 +562,11 @@ class CanvasDrawer:
             self._visual_image_cache.clear()
             return
 
-        # Base and offsets
-        x_abs = float(global_vals.get('x_cord_of_y_line', 0))
-        y_abs = float(global_vals.get('y_cord_of_x_line', 0))
-        rect_w = float(global_vals.get('base_square_x', 0))
-        rect_h = float(global_vals.get('base_square_y', 0))
-        inner_w = float(global_vals.get('acceptance_square_x', 0))
-        inner_h = float(global_vals.get('acceptance_square_y', 0))
-
-        # --- Inner acceptance rectangle centered in the build plate ---
-        inner_x1 = x_abs + (rect_w - inner_w) / 2
-        inner_y1 = y_abs + (rect_h - inner_h) / 2
+        # Acceptance rectangle is sourced directly from the explicit globals.
+        inner_x1 = float(global_vals.get('acceptance_square_left', 0))
+        inner_y1 = float(global_vals.get('acceptance_square_top', 0))
+        inner_w = float(global_vals.get('acceptance_square_width', 0))
+        inner_h = float(global_vals.get('acceptance_square_height', 0))
         inner_x2 = inner_x1 + inner_w
         inner_y2 = inner_y1 + inner_h
 

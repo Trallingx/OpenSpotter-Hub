@@ -154,14 +154,8 @@ def machine_view_from_state(state: MachineState) -> MachineView:
         available_commands = ()
 
     live_position = _coordinate_tuple(motion.get("live_position"))
-    position_source = motion.get("live_position")
-    if live_position is None:
-        position_source = toolhead.get("position")
-    position = _coordinate_tuple(position_source)
-    live_position_fresh = bool(
-        live_motion.get("fresh", False)
-        and live_position is not None
-    )
+    live_position_fresh = bool(live_motion.get("fresh", False))
+    position = live_position if live_position_fresh else None
 
     print_state = str(print_stats.get("state", "standby") or "standby").lower()
     if bool(pause_resume.get("is_paused", False)):
@@ -429,19 +423,10 @@ def artifact_hardware_preflight_error(
             f"command; found {homing_count}. Reload or update the G-code "
             "workflow before starting."
         )
-    if uses_mesh and view.bltouch_state != "loaded":
-        return (
-            "The exact artifact uses MESH, but saved BLTouch state is "
-            f"'{view.bltouch_state or 'unknown'}'. Load and verify the detachable "
-            "probe before direct execution."
-        )
-    if enables_offsets and (
-        not view.tcp_ready or view.tcp_coordinate_version != 2
-    ):
+    if enables_offsets and not view.tcp_ready:
         return (
             "The exact artifact enables needle TCP offsets, but saved TCP "
-            f"calibration is not ready for coordinate version 2 "
-            f"(tcp_ready={view.tcp_ready}, version={view.tcp_coordinate_version})."
+            f"calibration is not ready (tcp_ready={view.tcp_ready})."
         )
     return None
 
@@ -828,7 +813,10 @@ class MachineControlController:
             ),
             runtime_started=bool(self.runtime and self.runtime.started),
             gcode_commands=view.gcode_commands,
-            remote_controls_ready=remote_control_contract_error(view) is None,
+            remote_controls_ready=(
+                remote_control_contract_error(view) is None
+                and view.live_position_fresh
+            ),
         )
         if self.runtime is not None and hasattr(self.panel, "show_console"):
             self.panel.show_console(self.runtime.console_snapshot())

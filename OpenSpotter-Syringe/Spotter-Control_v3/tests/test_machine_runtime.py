@@ -565,10 +565,11 @@ class MoonrakerRuntimeTests(unittest.TestCase):
                 ]["gcode_commands"]
                 == ("M105",)
             )
-            self.assertFalse(
-                runtime.state_snapshot().objects[
+            wait_for(
+                lambda: runtime.state_snapshot().objects[
                     "_openspotter_live_motion"
                 ]["fresh"]
+                is True
             )
             websocket.push(
                 {
@@ -592,7 +593,7 @@ class MoonrakerRuntimeTests(unittest.TestCase):
             )
             self.assertEqual(
                 runtime.state_snapshot().objects["toolhead"]["homed_axes"],
-                "",
+                "xyz",
             )
             websocket.push(
                 {
@@ -613,6 +614,13 @@ class MoonrakerRuntimeTests(unittest.TestCase):
             self.assertGreaterEqual(
                 sum(
                     payload["method"] == "printer.gcode.help"
+                    for payload in websocket.sent
+                ),
+                2,
+            )
+            self.assertGreaterEqual(
+                sum(
+                    payload["method"] == "printer.objects.subscribe"
                     for payload in websocket.sent
                 ),
                 2,

@@ -30,12 +30,17 @@
       "type": "rectangle",
       "x": 36.0,
       "y": -25.0,
-      "width": 176.0,
-      "height": 176.0,
+      "width": 150.0,
+      "height": 150.0,
       "color": "#263c44",
       "text": "Acceptance limit",
       "text_size": 9,
-      "bindings": {}
+      "bindings": {
+        "x": "global.acceptance_square_left",
+        "y": "global.acceptance_square_top",
+        "width": "global.acceptance_square_width",
+        "height": "global.acceptance_square_height"
+      }
     },
     {
       "id": "visual-a7640e5455104d98848a5562cbac54cb",

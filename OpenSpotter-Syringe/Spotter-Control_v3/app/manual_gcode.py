@@ -239,6 +239,11 @@ _ALLOWED_MANUAL_COMMANDS = frozenset(
         "EMERGENCY_STOP",
         "HOMING",
         "OPENSPOTTER_JOG",
+        "LOAD_BLTOUCH",
+        "PARK_BLTOUCH",
+        "PROBE",
+        "M114",
+        "SET_SERVO",
     }
 )
 _BLOCKED_COMMAND_REASONS = {
@@ -258,7 +263,6 @@ _BLOCKED_COMMAND_REASONS = {
     "SET_GCODE_VARIABLE": "arbitrary macro-state mutation is not permitted manually",
     "SET_GCODE_OFFSET": "raw coordinate offsets bypass reviewed needle-offset macros",
     "SET_PIN": "direct output-pin changes are not permitted manually",
-    "SET_SERVO": "direct servo changes are not permitted manually",
     "CLEAR_DEAD_ZONES": "movement dead-zone protections may not be cleared manually",
     "REMOVE_DEAD_ZONE": "movement dead-zone protections may not be removed manually",
     "SET_DEAD_ZONE": "movement dead-zone protections may not be changed manually",

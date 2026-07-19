@@ -202,7 +202,11 @@ def _require_range(
 
 
 def _validate_global(values: Mapping[str, Any]) -> None:
-    for key in ("base_square_x", "base_square_y", "acceptance_square_x", "acceptance_square_y"):
+    for key in ("base_square_x", "base_square_y"):
+        _require_range(values, key, minimum=0.000001)
+    for key in ("acceptance_square_left", "acceptance_square_top"):
+        _require_range(values, key)
+    for key in ("acceptance_square_width", "acceptance_square_height"):
         _require_range(values, key, minimum=0.000001)
     _require_range(values, "mesh_points", minimum=3, maximum=10)
     _require_range(

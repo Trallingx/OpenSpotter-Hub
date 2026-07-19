@@ -563,29 +563,13 @@ class MoonrakerRuntime:
                     autoping=True,
                 )
                 capability_epoch = self._invalidate_gcode_capabilities()
-                self._invalidate_live_motion()
+                subscription_epoch = self._invalidate_live_motion()
                 receiver_task = asyncio.create_task(self._receive_loop(self._ws))
                 await self._rpc_internal(
                     "server.connection.identify",
                     self.config.identify_params,
                 )
-                object_result = await self._rpc_internal("printer.objects.list", {})
-                available_objects = self._available_objects(object_result.result)
-                subscription_objects = {
-                    name: fields
-                    for name, fields in self.config.subscriptions.items()
-                    if not available_objects or name in available_objects
-                }
-                unavailable = tuple(
-                    sorted(set(self.config.subscriptions) - set(subscription_objects))
-                )
-                if unavailable:
-                    self._publish("subscription_unavailable", unavailable)
-                if subscription_objects:
-                    await self._rpc_internal(
-                        "printer.objects.subscribe",
-                        {"objects": subscription_objects},
-                    )
+                await self._refresh_object_subscriptions(subscription_epoch)
                 await self._refresh_gcode_capabilities(capability_epoch)
 
                 self._connected_async.set()
@@ -727,16 +711,24 @@ class MoonrakerRuntime:
         loop = asyncio.get_running_loop()
         destination = loop.create_future()
         now = time.time()
-        await self._send_rpc(
-            method=method,
-            params=dict(params),
-            queued_at=now,
-            queued_monotonic=time.monotonic(),
-            timeout=self.config.request_timeout,
-            destination=destination,
-            outcome_may_change_machine=False,
-        )
-        return await destination
+        try:
+            await self._send_rpc(
+                method=method,
+                params=dict(params),
+                queued_at=now,
+                queued_monotonic=time.monotonic(),
+                timeout=self.config.request_timeout,
+                destination=destination,
+                outcome_may_change_machine=False,
+            )
+            return await destination
+        except Exception:
+            if destination.done():
+                try:
+                    destination.exception()
+                except Exception:
+                    pass
+            raise
 
     async def _send_rpc(
         self,
@@ -900,7 +892,7 @@ class MoonrakerRuntime:
                 )
             elif method == "notify_klippy_ready":
                 capability_epoch = self._invalidate_gcode_capabilities()
-                self._invalidate_live_motion()
+                subscription_epoch = self._invalidate_live_motion()
                 self._merge_status(
                     {
                         "webhooks": {
@@ -909,8 +901,11 @@ class MoonrakerRuntime:
                         }
                     }
                 )
-                asyncio.create_task(
+                self._spawn_background_task(
                     self._refresh_gcode_capabilities(capability_epoch)
+                )
+                self._spawn_background_task(
+                    self._refresh_object_subscriptions(subscription_epoch)
                 )
             self._publish(
                 "notification",
@@ -959,7 +954,7 @@ class MoonrakerRuntime:
         self._record_timing(timing)
 
         result = payload.get("result")
-        if isinstance(result, Mapping):
+        if isinstance(result, Mapping) and pending.method != "printer.objects.subscribe":
             status = result.get("status")
             if isinstance(status, Mapping):
                 self._merge_status(status)
@@ -1248,6 +1243,105 @@ class MoonrakerRuntime:
         if not isinstance(objects, (list, tuple, set, frozenset)):
             return set()
         return {str(name) for name in objects}
+
+    @staticmethod
+    def _thaw_status(value: Any) -> Any:
+        if isinstance(value, Mapping):
+            return {
+                str(key): MoonrakerRuntime._thaw_status(item)
+                for key, item in value.items()
+            }
+        if isinstance(value, list):
+            return [MoonrakerRuntime._thaw_status(item) for item in value]
+        if isinstance(value, tuple):
+            return tuple(MoonrakerRuntime._thaw_status(item) for item in value)
+        if isinstance(value, set):
+            return {MoonrakerRuntime._thaw_status(item) for item in value}
+        return value
+
+    def _spawn_background_task(self, awaitable: Awaitable[Any]) -> None:
+        task = asyncio.create_task(awaitable)
+
+        def _consume(task: asyncio.Task) -> None:
+            try:
+                task.result()
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                self._logger.debug(
+                    "moonraker.background_task_failed",
+                    exc_info=True,
+                )
+
+        task.add_done_callback(_consume)
+
+    async def _refresh_object_subscriptions(self, epoch: int) -> bool:
+        """Refresh printer-object subscriptions after Klippy becomes ready."""
+        assert epoch > 0
+        delay = max(0.05, float(self.config.reconnect_initial))
+        attempts = 0
+        while attempts < 5:
+            attempts += 1
+            if epoch != self._motion_epoch or self._shutdown_async is None:
+                return False
+            try:
+                object_result = await self._rpc_internal("printer.objects.list", {})
+                available_objects = self._available_objects(object_result.result)
+                if not available_objects:
+                    raise MoonrakerDisconnectedError(
+                        "printer.objects.list returned no available objects"
+                    )
+                subscription_objects = {
+                    name: fields
+                    for name, fields in self.config.subscriptions.items()
+                    if name in available_objects
+                }
+                unavailable = tuple(
+                    sorted(set(self.config.subscriptions) - set(subscription_objects))
+                )
+                if subscription_objects:
+                    subscribe_result = await self._rpc_internal(
+                        "printer.objects.subscribe",
+                        {"objects": subscription_objects},
+                    )
+                    if epoch != self._motion_epoch:
+                        return False
+                    status = subscribe_result.result.get("status")
+                    if not isinstance(status, Mapping) or not status:
+                        raise MoonrakerDisconnectedError(
+                            "printer.objects.subscribe returned no status snapshot"
+                        )
+                    self._merge_status(self._thaw_status(status))
+                    if unavailable:
+                        self._publish("subscription_unavailable", unavailable)
+                    return True
+                raise MoonrakerDisconnectedError(
+                    "printer.objects.subscribe had no matching objects"
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                if epoch != self._motion_epoch:
+                    return False
+                if attempts >= 5:
+                    self._logger.warning(
+                        "moonraker.subscription_refresh_failed: %s",
+                        str(exc) or exc.__class__.__name__,
+                    )
+                    self._publish(
+                        "subscription_unavailable",
+                        tuple(sorted(self.config.subscriptions)),
+                    )
+                    return False
+                await asyncio.sleep(delay)
+                delay = min(
+                    self.config.reconnect_max,
+                    max(
+                        self.config.reconnect_initial,
+                        delay * self.config.reconnect_multiplier,
+                    ),
+                )
+        return False
 
     @staticmethod
     def _available_gcode_commands(result: Any) -> set[str]:

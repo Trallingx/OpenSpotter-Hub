@@ -22,6 +22,7 @@ SPEC.loader.exec_module(TCP_MODULE)
 class TcpPositiveDownCoordinateTests(unittest.TestCase):
     def test_positive_down_calibration_uses_coordinate_version_two(self):
         self.assertEqual(TCP_MODULE.TCP_COORDINATE_VERSION, 2)
+        self.assertIn("coordinate_version", TCP_MODULE.PERSISTED_RESULT_NAMES)
 
     def test_old_saved_tcp_calibration_is_rejected(self):
         calibration = TCP_MODULE.TCPCalibration.__new__(

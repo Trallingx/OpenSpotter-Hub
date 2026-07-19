@@ -39,7 +39,8 @@
           "id": "start_job",
           "name": "Machine setup and needle calibration",
           "trigger": "job_start",
-          "template": "\nG90 ;use absolute coordinates\nG21 ;unit mm\nNEEDLE_TIP_OFFSETS_DISABLE ; Homing and mesh use machine/probe coordinates\n\n; Operator-owned homing and alignment routine\nM117 Homing\nHOMING\nG90 ; Reassert workflow coordinate mode after opaque HOMING\nG21 ; Reassert workflow units after opaque HOMING\nM117 Homed\nMESH X_MIN={{acceptance.x_left:.3f}} X_MAX={{acceptance.x_right:.3f}} Y_MIN={{acceptance.y_bottom:.3f}} Y_MAX={{acceptance.y_top:.3f}} POINTS={{global.mesh_points}} ;Home Z with mesh bed leveling inside acceptance square\nNEEDLE_TIP_OFFSETS_ENABLE ; Apply saved TCP offsets plus live needle Z trim to normal moves\nG0 X{{global.probe_x}} Y{{global.probe_y}} F{{global.movement_speed}}; Go with probe above vacuum chuck\nHOME_SYRINGE\nDISPENSE MM=0\nG1 Z{{global.calibration_height}} F{{global.calibration_feed_rate}}\nOPENSPOTTER_SET_PROMPT PROMPT=20\nM117 Calibrate needle\nPAUSE\nOPENSPOTTER_SET_PROMPT PROMPT=0\nG0 Z{{global.z_movement_pos_high}} F{{global.adcent_speed}}\n"
+          "template": "\nG90 ;use absolute coordinates\nG21 ;unit mm\nNEEDLE_TIP_OFFSETS_DISABLE ; Homing and mesh use machine/probe coordinates\n\n; Operator-owned homing and alignment routine\nM117 Homing\nHOMING\nG90 ; Reassert workflow coordinate mode after opaque HOMING\nG21 ; Reassert workflow units after opaque HOMING\nM117 Homed\nLOAD_BLTOUCH\nMESH X_MIN={{acceptance.x_left:.3f}} X_MAX={{acceptance.x_right:.3f}} Y_MIN={{acceptance.y_bottom:.3f}} Y_MAX={{acceptance.y_top:.3f}} POINTS={{global.mesh_points}} ;Home Z with mesh bed leveling inside acceptance square\nPARK_BLTOUCH\nTCPSTART X=4 Y=0 Z=-15 XYF=5000 ZF=2000 X_SWEEP_TRAVEL=5\nNEEDLE_TIP_OFFSETS_ENABLE ; Apply saved TCP offsets plus live needle Z trim to normal moves\nG0 X{{global.probe_x}} Y{{global.probe_y}} F{{global.movement_speed}}; Go with probe above vacuum chuck\nHOME_SYRINGE\nDISPENSE MM=0\nG1 Z{{global.calibration_height}} F{{global.calibration_feed_rate}}\nOPENSPOTTER_SET_PROMPT PROMPT=20\nM117 Calibrate needle\nPAUSE\nOPENSPOTTER_SET_PROMPT PROMPT=0\nG0 Z{{global.z_movement_pos_high}} F{{global.adcent_speed}}\n",
+          "condition": ""
         }
       ]
     },
@@ -53,7 +54,8 @@
           "id": "loading_reload_prepare",
           "name": "Move to reload safe height",
           "trigger": "syringe_reload",
-          "template": "G0 Z{{global.z_movement_pos_high}} F{{global.adcent_speed}}\n"
+          "template": "SET_SERVO SERVO=my_servo ANGLE=110\nWAIT S2\nG0 Z{{global.z_movement_pos_high}} F{{global.adcent_speed}}\n",
+          "condition": ""
         },
         {
           "id": "loading_dynamic_refill_note",
@@ -66,7 +68,8 @@
           "id": "loading_reload_motion",
           "name": "Container aspiration and priming",
           "trigger": "syringe_reload",
-          "template": "G0 X{{container.x}} Y{{container.y}} F{{global.movement_speed}}\nOPENSPOTTER_SET_PROMPT PROMPT=40\nM117 Open container {{container.id}}\nPAUSE\nOPENSPOTTER_SET_PROMPT PROMPT=0\nG0 Z{{container.z}} F{{global.decent_speed}}\nASPIRATE MM={{runtime.refill.fill_mm}} SPEED={{global.refilling_speed}}; Filling the syringe\nWAIT S={{global.syringe_aspirate_wait}}\nDISPENSE MM={{runtime.refill.priming_mm}} SPEED={{global.dispensing_speed * custom.priming_speed_factor}} RELATIVE=1; Prevent backlash the syringe\nWAIT S={{global.syringe_prime_wait}}\nG0 Z{{global.z_movement_pos_high}} F{{global.adcent_speed}}\n"
+          "template": "G0 X{{container.x}} Y{{container.y}} F{{global.movement_speed}}\nOPENSPOTTER_SET_PROMPT PROMPT=40\nM117 Open container {{container.id}}\nPAUSE\nOPENSPOTTER_SET_PROMPT PROMPT=0\nG0 Z{{container.z}} F{{global.decent_speed}}\nASPIRATE MM={{runtime.refill.fill_mm}} SPEED={{global.refilling_speed}}; Filling the syringe\nWAIT S={{global.syringe_aspirate_wait}}\nDISPENSE MM={{runtime.refill.priming_mm}} SPEED={{global.dispensing_speed * custom.priming_speed_factor}} RELATIVE=1; Prevent backlash the syringe\nWAIT S={{global.syringe_prime_wait}}\nG0 Z{{global.z_movement_pos_high}} F{{global.adcent_speed}}\nSET_SERVO SERVO=my_servo ANGLE=10\n",
+          "condition": ""
         }
       ]
     },
@@ -80,43 +83,50 @@
           "id": "printing_grid_start",
           "name": "Grid header",
           "trigger": "grid_start",
-          "template": "M117 Main Grid {{grid.name}}\n"
+          "template": "M117 Main Grid {{grid.name}}\n",
+          "condition": ""
         },
         {
           "id": "printing_grid_spot_move",
           "name": "Move to grid spot",
           "trigger": "grid_spot_move",
-          "template": "G0 X{{runtime.spot.x}} Y{{runtime.spot.y}} F{{global.movement_speed}}\nG0 Z{{global.z_movement_pos_low}} F{{global.decent_speed}}\n"
+          "template": "G0 X{{runtime.spot.x}} Y{{runtime.spot.y}} F{{global.movement_speed}}\nG0 Z{{global.z_movement_pos_low}} F{{global.decent_speed}}\n",
+          "condition": ""
         },
         {
           "id": "printing_grid_row_start",
           "name": "Stabilize at row start",
           "trigger": "grid_row_start",
-          "template": "WAIT S={{global.row_start_wait}}\n"
+          "template": "WAIT S={{global.row_start_wait}}\n",
+          "condition": ""
         },
         {
           "id": "printing_grid_spot_dispense",
           "name": "Dispense and contact grid spot",
           "trigger": "grid_spot_dispense",
-          "template": "DISPENSE MM={{runtime.spot.dispense_mm}} SPEED={{global.dispensing_speed}} RELATIVE=1\nWAIT S={{grid.droplet_forming_time}}\nG0 Z{{grid.z_contact}} F{{global.decent_speed}} ;position for liquid contact\nG0 Z{{global.z_movement_pos_low}} F{{global.adcent_speed}}\n"
+          "template": "DISPENSE MM={{runtime.spot.dispense_mm}} SPEED={{global.dispensing_speed}} RELATIVE=1\nWAIT S={{grid.droplet_forming_time}}\nG0 Z{{grid.z_contact}} F{{global.decent_speed}} ;position for liquid contact\nG0 Z{{global.z_movement_pos_low}} F{{global.adcent_speed}}\n",
+          "condition": ""
         },
         {
           "id": "printing_spiral_start",
           "name": "Spiral header",
           "trigger": "spiral_start",
-          "template": "\n; Spiral sequence\nM117 Spiral {{spiral.spiral_mode}}\n"
+          "template": "\n; Spiral sequence\nM117 Spiral {{spiral.spiral_mode}}\n",
+          "condition": ""
         },
         {
           "id": "printing_spiral_drop",
           "name": "Spiral droplet",
           "trigger": "spiral_drop",
-          "template": "G0 X{{runtime.spot.x:.3f}} Y{{runtime.spot.y:.3f}} F{{global.movement_speed}}\nG0 Z{{global.z_movement_pos_low}} F{{global.decent_speed}}\nDISPENSE MM={{runtime.spot.dispense_mm:.6f}} SPEED={{global.dispensing_speed}} RELATIVE=1\nWAIT S={{spiral.droplet_forming_time}}\nG0 Z{{spiral.z_contact}} F{{global.decent_speed}} ;position for liquid contact\nG0 Z{{global.z_movement_pos_low}} F{{global.adcent_speed}}\n"
+          "template": "G0 X{{runtime.spot.x:.3f}} Y{{runtime.spot.y:.3f}} F{{global.movement_speed}}\nG0 Z{{global.z_movement_pos_low}} F{{global.decent_speed}}\nDISPENSE MM={{runtime.spot.dispense_mm:.6f}} SPEED={{global.dispensing_speed}} RELATIVE=1\nWAIT S={{spiral.droplet_forming_time}}\nG0 Z{{spiral.z_contact}} F{{global.decent_speed}} ;position for liquid contact\nG0 Z{{global.z_movement_pos_low}} F{{global.adcent_speed}}\n",
+          "condition": ""
         },
         {
           "id": "printing_spiral_continuous",
           "name": "Continuous spiral segment",
           "trigger": "spiral_continuous",
-          "template": "G1 X{{runtime.spot.x:.3f}} Y{{runtime.spot.y:.3f}} F{{global.movement_speed}}\nDISPENSE MM={{runtime.spot.dispense_mm:.6f}} SPEED={{global.dispensing_speed}} RELATIVE=1\nWAIT S={{spiral.droplet_forming_time}}\n"
+          "template": "G1 X{{runtime.spot.x:.3f}} Y{{runtime.spot.y:.3f}} F{{global.movement_speed}}\nDISPENSE MM={{runtime.spot.dispense_mm:.6f}} SPEED={{global.dispensing_speed}} RELATIVE=1\nWAIT S={{spiral.droplet_forming_time}}\n",
+          "condition": ""
         }
       ]
     },
@@ -130,61 +140,71 @@
           "id": "cleaning_start",
           "name": "Cleaning header",
           "trigger": "cleaning_start",
-          "template": "\n\n; Create cleaning sequence\nM117 Auto Cleaning\n"
+          "template": "\n\n; Create cleaning sequence\nM117 Auto Cleaning\n",
+          "condition": ""
         },
         {
           "id": "cleaning_spot_move",
           "name": "Move to cleaning spot",
           "trigger": "cleaning_spot_move",
-          "template": "G0 X{{runtime.spot.x}} Y{{runtime.spot.y}} F{{global.movement_speed}}\nG0 Z{{global.z_movement_pos_low}} F{{global.decent_speed}}\n"
+          "template": "G0 X{{runtime.spot.x}} Y{{runtime.spot.y}} F{{global.movement_speed}}\nG0 Z{{global.z_movement_pos_low}} F{{global.decent_speed}}\n",
+          "condition": ""
         },
         {
           "id": "cleaning_row_start",
           "name": "Stabilize cleaning row",
           "trigger": "cleaning_row_start",
-          "template": "WAIT S={{global.row_start_wait}}\n"
+          "template": "WAIT S={{global.row_start_wait}}\n",
+          "condition": ""
         },
         {
           "id": "cleaning_spot_dispense",
           "name": "Dispense cleaning spot",
           "trigger": "cleaning_spot_dispense",
-          "template": "DISPENSE MM={{runtime.spot.dispense_mm}} SPEED={{global.dispensing_speed}} RELATIVE=1\nWAIT S={{cleaning.droplet_forming_time_cleaning}}\nG0 Z{{grid.z_contact}} F{{global.decent_speed}} ;position for liquid contact\nG0 Z{{global.z_movement_pos_low}} F{{global.adcent_speed}}\n"
+          "template": "DISPENSE MM={{runtime.spot.dispense_mm}} SPEED={{global.dispensing_speed}} RELATIVE=1\nWAIT S={{cleaning.droplet_forming_time_cleaning}}\nG0 Z{{grid.z_contact}} F{{global.decent_speed}} ;position for liquid contact\nG0 Z{{global.z_movement_pos_low}} F{{global.adcent_speed}}\n",
+          "condition": ""
         },
         {
           "id": "washing_start",
           "name": "Begin washing",
           "trigger": "washing_start",
-          "template": "\n; Washing sequence\nM117 Auto Washing\nG0 Z{{global.z_movement_pos_high}} F{{global.adcent_speed}}\nG0 X{{runtime.washing.x_start}} Y{{washing.washing_y_pos}} F{{global.movement_speed}}\nG0 Z{{washing.washing_depth}} F{{global.decent_speed}}\n"
+          "template": "\n; Washing sequence\nM117 Auto Washing\nG0 Z{{global.z_movement_pos_high}} F{{global.adcent_speed}}\nG0 X{{runtime.washing.x_start}} Y{{washing.washing_y_pos}} F{{global.movement_speed}}\nG0 Z{{washing.washing_depth}} F{{global.decent_speed}}\n",
+          "condition": ""
         },
         {
           "id": "washing_cycle",
           "name": "Washing stroke",
           "trigger": "washing_cycle",
-          "template": "G0 X{{runtime.washing.x_end}} F{{washing.washing_speed}}\nG0 X{{runtime.washing.x_start}} F{{washing.washing_speed}}\n"
+          "template": "G0 X{{runtime.washing.x_end}} F{{washing.washing_speed}}\nG0 X{{runtime.washing.x_start}} F{{washing.washing_speed}}\n",
+          "condition": ""
         },
         {
           "id": "washing_end",
           "name": "Finish washing",
           "trigger": "washing_end",
-          "template": "G0 Z{{global.z_movement_pos_high}} F{{global.adcent_speed}}\n"
+          "template": "G0 Z{{global.z_movement_pos_high}} F{{global.adcent_speed}}\n",
+          "condition": ""
         },
         {
           "id": "syringe_empty_start",
           "name": "Empty syringe",
           "trigger": "syringe_empty_start",
-          "template": "M117 Emptying Syringe\n\nG0 Z{{global.z_movement_pos_high}} F{{global.adcent_speed}} ; dispensing leftovers\nG0 X{{container.x}} Y{{container.y}} F{{global.movement_speed}}\nG0 Z{{container.z}} F{{global.decent_speed}}\nDISPENSE MM={{runtime.rinse.min_mm}} SPEED={{global.dispensing_speed}}\nWAIT S={{global.emptying_wait}}\n"
+          "template": "M117 Emptying Syringe\n\nG0 Z{{global.z_movement_pos_high}} F{{global.adcent_speed}} ; dispensing leftovers\nG0 X{{container.x}} Y{{container.y}} F{{global.movement_speed}}\nG0 Z{{container.z}} F{{global.decent_speed}}\nDISPENSE MM={{runtime.rinse.min_mm}} SPEED={{global.dispensing_speed}}\nWAIT S={{global.emptying_wait}}\n",
+          "condition": ""
         },
         {
           "id": "rinse_cycle",
           "name": "Rinse aspiration and dispense",
           "trigger": "rinse_cycle",
-          "template": "ASPIRATE MM={{runtime.rinse.max_mm}} SPEED={{global.dispensing_speed}} ; rinse aspiration\nWAIT S={{global.rinse_aspiration_wait}}\nDISPENSE MM={{runtime.rinse.min_mm}} SPEED={{global.dispensing_speed}} ; rinse dispense\n"
+          "template": "ASPIRATE MM={{runtime.rinse.max_mm}} SPEED={{global.dispensing_speed}} ; rinse aspiration\nWAIT S={{global.rinse_aspiration_wait}}\nDISPENSE MM={{runtime.rinse.min_mm}} SPEED={{global.dispensing_speed}} ; rinse dispense\n",
+          "condition": ""
         },
         {
           "id": "rinse_midpoint",
           "name": "Rinse midpoint",
           "trigger": "rinse_midpoint",
-          "template": "WAIT S={{global.rinse_final_wait}}\n\nG0 Z{{global.z_movement_pos_high}} F{{global.adcent_speed}} ; dispensing leftovers\n"
+          "template": "WAIT S={{global.rinse_final_wait}}\n\nG0 Z{{global.z_movement_pos_high}} F{{global.adcent_speed}} ; dispensing leftovers\n",
+          "condition": ""
         },
         {
           "id": "syringe_empty_final_rinse_wait",
@@ -197,7 +217,8 @@
           "id": "syringe_empty_end",
           "name": "Raise after emptying",
           "trigger": "syringe_empty_end",
-          "template": "G0 Z{{global.z_movement_pos_high}} F{{global.adcent_speed}}\n"
+          "template": "G0 Z{{global.z_movement_pos_high}} F{{global.adcent_speed}}\n",
+          "condition": ""
         }
       ]
     },
@@ -211,7 +232,8 @@
           "id": "end_present_plate",
           "name": "Present build plate",
           "trigger": "job_end",
-          "template": "G90 ;absolute positioning\nG0 Y{{global.present_plate_y}} F{{global.present_plate_speed}};present print\nOPENSPOTTER_JOB_CLEANUP\n"
+          "template": "G90 ;absolute positioning\nG0 Y{{global.present_plate_y}} F{{global.present_plate_speed}};present print\nOPENSPOTTER_JOB_CLEANUP\n",
+          "condition": ""
         }
       ]
     }

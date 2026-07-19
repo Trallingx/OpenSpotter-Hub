@@ -192,11 +192,10 @@ Start preflight combines:
 - locked global parameters;
 - live `toolhead.axis_minimum/axis_maximum`;
 - rendered absolute motion plus current TCP/live-Z offsets;
-- saved `bltouch_state=loaded` when `MESH` is present;
 - `tcp_ready=True` and coordinate version 2 when needle offsets are enabled;
 - artifact filename matching for the read/queued viewer.
 
-For artifacts that use `MESH`, saved BLTouch state must already be `loaded` and the operator must verify the physical tool before Start. Neither Start preflight nor the generated `HOMING` call relies on the macro to load or park the BLTouch.
+For artifacts that use `MESH`, the generated job itself is responsible for loading and verifying the BLTouch state before mesh execution. Start preflight does not block on the saved BLTouch state; it only enforces the independent TCP and contract checks above.
 
 The G-code cursor is based on `virtual_sdcard.file_position`, which is read/queued position. Never describe it as physically executed motion.
 

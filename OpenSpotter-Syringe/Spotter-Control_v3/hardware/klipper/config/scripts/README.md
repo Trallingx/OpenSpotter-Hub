@@ -1,34 +1,47 @@
-# Klipper TCP Calibration Extra
+# Klipper Custom Scripts
 
-`tcp_calibration.py` is the repository source for the custom `[tcp_calibration]` Klipper extra. It performs continuous optical-cross moves, follows the X beam upward to find the needle tip, centres X and Y in a common plane, verifies both stationary beam states, and persists TCP coordinates and offsets. Its defaults use the machine convention positive X right and positive Y down; the reflected beam normals and Y acquisition direction must stay aligned with `tcp_calibration.cfg`.
+`tcp_calibration.py` is a Klipper `extras` module for continuous optical-cross
+TCP calibration.
 
-The repository intentionally contains no Klipper source checkout. Install this file into the Klipper tree used by the printer.
+The routine performs one pure-X acquisition, then centers X with diagonal
+sweeps normal to the X beam while following the needle upward to its tip edge.
+At `tip_z - 2 mm`, it re-centers X, follows the physical X beam to cross and
+center Y, solves both beam coordinates in that common Z plane, and accepts the
+result only when stationary sequential queries report both beams `PRESSED`.
+The fixture convention is a clear start on the right/X+ side: acquisition moves
+X-, the X beam rises toward X-, and the Y beam rises toward X+.
 
-## Install
+For this workspace it is installed here:
 
-After this `scripts` directory has been deployed to `~/printer_data/config/scripts`:
+```text
+../klipper-master/klippy/extras/tcp_calibration.py
+```
+
+From this `scripts` folder, refresh that workspace copy with:
+
+```powershell
+Copy-Item -LiteralPath .\tcp_calibration.py -Destination ..\klipper-master\klippy\extras\tcp_calibration.py -Force
+```
+
+Remove the workspace copy with:
+
+```powershell
+Remove-Item -LiteralPath ..\klipper-master\klippy\extras\tcp_calibration.py
+```
+
+For a printer deployment, copy the same file to the active Klipper source tree:
 
 ```sh
 cp ~/printer_data/config/scripts/tcp_calibration.py ~/klipper/klippy/extras/tcp_calibration.py
 sudo systemctl restart klipper
 ```
 
-The destination may differ for a nonstandard Klipper installation. A service restart is required so Python imports the new extra. Verify the deployment again after Klipper upgrades.
+Remove the printer deployment with:
 
-Deploy `tcp_calibration.cfg` and its include only after the module is present; otherwise Klipper cannot load the `[tcp_calibration]` section.
+```sh
+rm ~/klipper/klippy/extras/tcp_calibration.py
+sudo systemctl restart klipper
+```
 
-## Guards and commands
-
-`TCPCALIBRATE` requires homed XYZ, TCP power on in `save_variables`, and saved BLTouch state `parked`. `TCPSTART` performs the positioning and power sequence around it.
-
-- `TCPQUERYBEAMS`: report optical input states.
-- `TCPQUERYBLTOUCH`: report the saved detachable-probe state.
-- `TCPSHOWOFFSETS`: report persisted tip coordinates and offsets.
-- `TCPMOVEWITHOFFSET`: move to a nominal XYZ plus saved TCP offsets.
-- `TCPABORT`: power down and set `tcp_ready=False`.
-
-See the [hardware guide](../../README.md) for commissioning and safe usage, and the [calibration flow PDF](tcp_calibration_flow.pdf) for the algorithm.
-
-## Remove
-
-First remove `tcp_calibration.cfg` from the active `printer.cfg` include graph and restart Klipper successfully. Then remove `klippy/extras/tcp_calibration.py`. Reversing that order leaves an unloadable configuration on the next restart.
+Then include `tcp_calibration.cfg` when installed, or remove that include when
+the Python module has been removed.

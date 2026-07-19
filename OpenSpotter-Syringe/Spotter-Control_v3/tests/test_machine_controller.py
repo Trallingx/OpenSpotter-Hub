@@ -307,6 +307,13 @@ class MachineViewAndPreflightTests(unittest.TestCase):
             start_preflight_error(view, parameters_locked=False),
         )
 
+    def test_stale_live_position_is_hidden_until_fresh_snapshot_returns(self):
+        state = make_state(live_position_fresh=False)
+        view = machine_view_from_state(state)
+
+        self.assertIsNone(view.position)
+        self.assertFalse(view.live_position_fresh)
+
     def test_artifact_bounds_include_live_tcp_offsets(self):
         with tempfile.TemporaryDirectory() as directory:
             artifact = make_artifact(
@@ -319,7 +326,7 @@ class MachineViewAndPreflightTests(unittest.TestCase):
 
         self.assertIn("physical 251.0000", error)
 
-    def test_artifact_requires_loaded_probe_and_valid_tcp(self):
+    def test_artifact_uses_mesh_without_probe_state_preflight_block(self):
         with tempfile.TemporaryDirectory() as directory:
             artifact = make_artifact(
                 directory,
@@ -332,7 +339,7 @@ class MachineViewAndPreflightTests(unittest.TestCase):
 
             error = artifact_hardware_preflight_error(artifact, view)
 
-        self.assertIn("BLTouch", error)
+        self.assertIsNone(error)
 
     def test_artifact_requires_exactly_one_bare_homing_command(self):
         cases = {
@@ -424,6 +431,16 @@ class MachineControllerTests(unittest.TestCase):
             runtime.state = make_state(live_position_fresh=False)
             controller._refresh_state()
             self.assertEqual(updates[-1], (None, "xyz"))
+
+    def test_control_state_requires_fresh_snapshot_before_guarded_actions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            artifact = make_artifact(directory, "G90\nG0 X10\n")
+            runtime = FakeRuntime(make_state(live_position_fresh=False))
+            controller, _root, panel = self.make_controller(runtime, artifact)
+
+            controller._refresh_state()
+
+            self.assertFalse(panel.control_states[-1]["remote_controls_ready"])
 
     def test_reconnect_clears_canvas_before_waiting_for_runtime_stop(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -639,8 +656,13 @@ class MachineControllerTests(unittest.TestCase):
                 controller.start_current_job()
                 root.run_short_callbacks()
 
-            self.assertEqual(runtime.start_calls, [])
-            self.assertIn("Fresh hardware preflight", panel.operations[-1][0])
+            self.assertEqual(runtime.start_calls, [artifact.remote_path])
+            self.assertFalse(
+                any(
+                    "Fresh hardware preflight" in operation[0]
+                    for operation in panel.operations
+                )
+            )
 
     def test_external_filename_hides_local_artifact_context(self):
         with tempfile.TemporaryDirectory() as directory:

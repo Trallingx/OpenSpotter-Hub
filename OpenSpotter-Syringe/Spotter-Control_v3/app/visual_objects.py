@@ -48,6 +48,12 @@ DEFAULT_VISUAL_OBJECT_DATA = (
         "color": "#263c44",
         "text": "Acceptance limit",
         "text_size": 9,
+        "bindings": {
+            "x": "global.acceptance_square_left",
+            "y": "global.acceptance_square_top",
+            "width": "global.acceptance_square_width",
+            "height": "global.acceptance_square_height",
+        },
     },
     *(
         {
@@ -159,6 +165,25 @@ def _migrate_v1_visual_object(value: Any) -> Any:
     return migrated
 
 
+def _migrate_acceptance_visual_object(value: Any) -> Any:
+    if not isinstance(value, dict):
+        return value
+    if str(value.get("id", "")).strip() != "legacy-acceptance-limit":
+        return value
+    migrated = dict(value)
+    bindings = dict(migrated.get("bindings", {}))
+    bindings.update(
+        {
+            "x": "global.acceptance_square_left",
+            "y": "global.acceptance_square_top",
+            "width": "global.acceptance_square_width",
+            "height": "global.acceptance_square_height",
+        }
+    )
+    migrated["bindings"] = bindings
+    return migrated
+
+
 def normalize_visual_object(value: Any, *, fallback_id: str) -> Dict[str, Any]:
     """Return one object in the canonical, JSON-safe canvas schema."""
     if not isinstance(value, dict):
@@ -237,6 +262,7 @@ def normalize_visual_object_config(payload: Any) -> Dict[str, Any]:
     for index, item in enumerate(objects, start=1):
         if version == 1:
             item = _migrate_v1_visual_object(item)
+        item = _migrate_acceptance_visual_object(item)
         visual_object = normalize_visual_object(
             item,
             fallback_id=f"visual-object-{index}",
