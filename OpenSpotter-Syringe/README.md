@@ -2,7 +2,17 @@
 
 OpenSpotter-Syringe is an open-source, syringe-driven liquid-handling and spotting platform. It combines a Python/Tkinter experiment editor, reproducible G-code generation, Klipper configuration for an Einsy RAMBo 1.1a, and two generations of mechanical design files.
 
-![OpenSpotter-Syringe hardware](Spotter.JPEG)
+SyringeSpotterV2 Hardware
+![OpenSpotter-Syringe hardware](SpotterV2.JPEG)
+GCODE creation GUI with Realtime Controls
+![OpenSpotter-Syringe hardware](APP_Rework_Realtime.JPEG)
+
+# DEV NOTE
+  The current capabilities (V2) are not 100% tested and a full test has not been run yet! The Spotter is not operational prior to software updates. The current version stops prior to bed meshing because of safety interlocks. This could be bypassed, but needs a proper check with test syringe (not glass !!!) before allowing moves. 
+
+  The TCP finds the relative z position of the needle tip and the 3D-Touch creates a bed mesh to account for bed variations, but the offset between TCP-X-BEAM (trigger) and surface has not been measured yet. This will be a absolut offset that applies to all needles, even if mounted at different heights, but has to be manually checked once. RUN TCP calibration, RUN bed mesh, move needle to needle offset, move down to substrate (final accuracy z 20 micron), note offset. 
+
+  Spiral mode is experimental and GCODE creation has not been veryfied. NOT operational!
 
 ## Current capabilities
 
