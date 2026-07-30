@@ -3,7 +3,7 @@
 OpenSpotter-Syringe is an open-source, syringe-driven liquid-handling and spotting platform. It combines a Python/Tkinter experiment editor, reproducible G-code generation, Klipper configuration for an Einsy RAMBo 1.1a, and two generations of mechanical design files.
 
 SyringeSpotterV2 Hardware
-![OpenSpotter-Syringe hardware](SpotterV2.JPEG)
+![OpenSpotter-Syringe hardware](SpotterV2.jpg)
 GCODE creation GUI with Realtime Controls
 ![OpenSpotter-Syringe hardware](APP_Rework_Realtime.JPEG)
 
