@@ -1,0 +1,12 @@
+{
+  "fields": [
+    {"name": "rows", "type": "int", "default": 5, "min": 1, "max": 100000, "label": "Rows"},
+    {"name": "cols", "type": "int", "default": 5, "min": 1, "max": 200, "label": "Columns"},
+    {"name": "row_spacing", "type": "float", "default": 10.0, "min": 0.1, "max": 500.0, "label": "Row Spacing"},
+    {"name": "col_spacing", "type": "float", "default": 10.0, "min": 0.1, "max": 500.0, "label": "Column Spacing"},
+    {"name": "drop_vol", "type": "float", "default": 1.0, "min": 0.1, "max": 20.0, "label": "Drop Volume"},
+    {"name": "origin_x", "type": "float", "default": 20.0, "min": -1000.0, "max": 1000.0, "label": "Origin X"},
+    {"name": "origin_y", "type": "float", "default": 20.0, "min": -1000.0, "max": 1000.0, "label": "Origin Y"},
+    {"name": "speed_mm_s", "type": "float", "default": 1000.0, "min": 1.0, "max": 10000.0, "label": "Speed (mm/s)"}
+  ]
+}

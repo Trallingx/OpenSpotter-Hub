@@ -1,0 +1,125 @@
+{
+  "machine": {
+    "name": "DOD Printer",
+    "type": "Cartesian"
+  },
+  "gantry": {
+    "max_x": 200.0,
+    "max_y": 200.0,
+    "max_z": 10.0,
+    "velocity": 200.0
+  },
+  "klipper": {
+    "host": "R2R-Spotter-Plotter.local",
+    "port": 7125,
+    "dispatch_window_spots": 100,
+    "dispatch_refill_threshold_spots": 1,
+    "dispatch_batch_spots": 5,
+    "position_poll_interval_ms": 0.1,
+    "homing_status_wait_ms": 1000,
+    "spot_position_tolerance_mm": 0.05,
+    "valve_trigger_mode": "mcu",
+    "spotting_completion_source": "position",
+    "connect_gcode": "START_ARDUINO_VALVE_BRIDGE",
+    "start_gcode": "SET_HOMED",
+    "end_gcode": ""
+  },
+  "valves": [
+    {
+      "id": 0,
+      "pin": 7,
+      "name": "Valve 0 (Adhesive)",
+      "color": [
+        255,
+        2,
+        0
+      ],
+      "hold": false,
+      "pre_fire_wait": 0.0,
+      "post_fire_wait": 0.0,
+      "on_ms": 17.0,
+      "off_ms": 27.0,
+      "cycles": 1,
+      "is_active": true
+    },
+    {
+      "id": 1,
+      "pin": 6,
+      "name": "Valve 1",
+      "color": [
+        250,
+        249,
+        0
+      ],
+      "hold": false,
+      "pre_fire_wait": 0.0,
+      "post_fire_wait": 0.0,
+      "on_ms": 5.3,
+      "off_ms": 5.0,
+      "cycles": 1,
+      "is_active": true
+    },
+    {
+      "id": 2,
+      "pin": 4,
+      "name": "Valve 2 (Toluene)",
+      "color": [
+        0,
+        0,
+        255
+      ],
+      "hold": false,
+      "pre_fire_wait": 0.0,
+      "post_fire_wait": 0.0,
+      "on_ms": 50.0,
+      "off_ms": 50.5,
+      "cycles": 6,
+      "is_active": false
+    },
+    {
+      "id": 3,
+      "pin": 0,
+      "name": "Valve 3 (DyeX)",
+      "color": [
+        255,
+        255,
+        0
+      ],
+      "hold": false,
+      "pre_fire_wait": 0.0,
+      "post_fire_wait": 0.0,
+      "on_ms": 50.0,
+      "off_ms": 50.0,
+      "cycles": 1,
+      "is_active": false
+    }
+  ],
+  "grids": [
+    {
+      "name": "Grid 1",
+      "valve_id": 0,
+      "active": true,
+      "rows": 10,
+      "cols": 10,
+      "row_spacing": 1.0,
+      "col_spacing": 1.0,
+      "drop_vol": 1.0,
+      "origin_x": 20.0,
+      "origin_y": 20.0,
+      "speed_mm_s": 50.0
+    },
+    {
+      "name": "Grid 2",
+      "valve_id": 1,
+      "active": true,
+      "rows": 10,
+      "cols": 10,
+      "row_spacing": 1.0,
+      "col_spacing": 1.0,
+      "drop_vol": 1.0,
+      "origin_x": 20.5,
+      "origin_y": 20.5,
+      "speed_mm_s": 50.0
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "host": "localhost",
+  "port": 7125,
+  "scheme": "http",
+  "route_prefix": "",
+  "api_key": ""
+}

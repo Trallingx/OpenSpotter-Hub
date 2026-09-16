@@ -1,96 +1,89 @@
+"""Compatibility facade for OpenSpotter pattern plugin discovery.
+
+New infrastructure lives in :mod:`app.core.plugins`. Existing callers can keep
+using ``discover_plugins`` and ``get_plugin`` while built-in and installed
+plugins receive the same validation and duplicate protection.
 """
-Plugin registry and loader for OpenSpotter-Syringe.
 
-Pattern Generator Plugins:
-Plugins extend pattern generation beyond simple grids. Add new plugins by:
-1. Create a new module in this directory (e.g., plugins/hexagon.py)
-2. Implement a class with a `generate()` method and `name` attribute
-3. Implement a `register()` function that returns the plugin instance
-4. Plugin is auto-discovered on next startup
+from typing import Optional
 
-Example plugin structure:
-```python
-class HexagonPlugin:
-    name = 'hexagon'
-    
-    def generate(self, file, settings_snapshot, context):
-        # Write G-code to file
-        # Return dict with metadata
-        pass
-
-def register():
-    return HexagonPlugin()
-```
-
-Plugin Context Dictionary (passed to generate()):
-- params: field values specific to this plugin instance
-- speed: movement speed (mm/s)
-- dispensing_speed: dispensing speed (mm/min)
-- z_high, z_low: Z-height values
-- helpers: dict of utility functions (volume_to_mm, etc.)
-
-Plugin Return Value:
-Dict with execution metadata:
-- total_dispense_uL: total volume dispensed
-- spots_count: number of dispensing points
-- Additional keys: plugin-specific metadata
-"""
-import importlib
-import pkgutil
-import os
-from typing import Dict, Optional, List
-
-_PLUGINS: Dict[str, object] = {}
+from ..core.plugins import (
+    API_VERSION,
+    ENTRY_POINT_GROUP,
+    DuplicatePluginError,
+    PatternPlugin,
+    PluginCompatibilityError,
+    PluginError,
+    PluginLoadError,
+    PluginManifest,
+    PluginManifestError,
+    PluginRegistry,
+)
+from ..runtime_logging import get_logger, log_options
 
 
-def discover_plugins():
-    """Auto-discover and register all plugins in the plugins package."""
-    pkg_dir = os.path.dirname(__file__)
-    for finder, name, ispkg in pkgutil.iter_modules([pkg_dir]):
-        if name.startswith('_'):
-            continue
-        try:
-            mod = importlib.import_module(f"{__name__}.{name}")
-        except Exception as e:
-            print(f"⚠️ Failed to load plugin '{name}': {e}")
-            continue
-        if hasattr(mod, 'register'):
-            try:
-                plugin = mod.register()
-                plugin_name = getattr(plugin, 'name', None) or getattr(mod, 'name', None) or name
-                _PLUGINS[plugin_name] = plugin
-                print(f"✅ Loaded plugin: {plugin_name}")
-            except Exception as e:
-                print(f"⚠️ Failed to register plugin '{name}': {e}")
-                continue
+logger = get_logger("plugins")
+_REGISTRY = PluginRegistry()
+
+# Kept as a compatibility alias for code that inspected the former module-level
+# mapping. New code should use get_registry().plugins.
+_PLUGINS = _REGISTRY._plugins
+
+
+def _log_discovery_error(error: PluginError) -> None:
+    logger.error("plugin.discovery_failed | error=%s", error)
+
+
+def discover_plugins(include_external: bool = True) -> None:
+    """Discover built-ins and, optionally, installed entry-point plugins.
+
+    Discovery is safe to call repeatedly. A source that registered successfully
+    is not imported or constructed again.
+    """
+
+    loaded_ids = list(
+        _REGISTRY.discover_builtins(__name__, on_error=_log_discovery_error)
+    )
+    if include_external:
+        loaded_ids.extend(
+            _REGISTRY.load_entry_points(on_error=_log_discovery_error)
+        )
+
+    for plugin_id in loaded_ids:
+        plugin = _REGISTRY.require(plugin_id)
+        log_options(
+            logger,
+            "plugin.loaded",
+            plugin_name=plugin_id,
+            implementation=type(plugin).__name__,
+        )
 
 
 def get_plugin(name: str) -> Optional[object]:
-    """Get a registered plugin by name. Returns None if not found."""
-    return _PLUGINS.get(name)
+    """Get a registered plugin by name. Returns ``None`` if it is unknown."""
+
+    return _REGISTRY.get(name)
 
 
-def list_plugins() -> List[str]:
-    """List all registered plugin names."""
-    return list(_PLUGINS.keys())
+def get_registry() -> PluginRegistry:
+    """Return the process-wide compatibility registry."""
+
+    return _REGISTRY
 
 
-def register_plugin(name: str, plugin_obj: object):
-    """Manually register a plugin (useful for testing or runtime plugins)."""
-    _PLUGINS[name] = plugin_obj
-    print(f"✅ Registered plugin: {name}")
-
-
-def get_available_plugin_types() -> Dict[str, str]:
-    """
-    Get a dict of plugin names for UI display.
-    
-    Useful for populating dropdown menus or comboboxes.
-    Returns: {'spiral': 'Spiral Pattern', 'hexagon': 'Hexagon Pattern', ...}
-    
-    For now, returns plugin names. In future, could return display labels from metadata.
-    """
-    if not _PLUGINS:
-        discover_plugins()
-    return {name: name.capitalize() for name in _PLUGINS.keys()}
+__all__ = [
+    "API_VERSION",
+    "ENTRY_POINT_GROUP",
+    "DuplicatePluginError",
+    "PatternPlugin",
+    "PluginCompatibilityError",
+    "PluginError",
+    "PluginLoadError",
+    "PluginManifest",
+    "PluginManifestError",
+    "PluginRegistry",
+    "discover_plugins",
+    "get_plugin",
+    "get_registry",
+]
 
