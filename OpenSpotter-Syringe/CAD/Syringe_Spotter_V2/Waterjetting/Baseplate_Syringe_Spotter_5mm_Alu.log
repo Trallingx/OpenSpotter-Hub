@@ -1,0 +1,52 @@
+﻿
+Unigraphics NX2406.1700 / 2D Exchange
+
+Reading part: C:\Users\felix.l.hoch\OneDrive - Syddansk Universitet\Documents\OpenSpotter-Hub\OpenSpotter-Syringe\CAD\Syringe_Spotter_V2\Baseplate_SDU_V2.prt
+
+
+Writing part: C:\Users\FELIXL~1.HOC\AppData\Local\Temp\1\felint0x2k02n_2qp.prt
+
+Elapsed time   :    0 minutes,  0 seconds
+Actual CPU Time:    0 minutes,  1 seconds
+
+INFO-
+INFO-		Unigraphics Version NX2406.1700 to AutoCAD 2018
+INFO-		
+INFO-
+INFO-		Running UGTODXF Translator .....
+INFO-
+INFO-		Start of Translation: Fri Jun 26 15:05:49 2026
+INFO-
+STATUS-		Converting C:\Users\FELIXL~1.HOC\AppData\Local\Temp\1\felint0x2k02n_2qp.prt
+STATUS-
+SUMMARY-
+SUMMARY-	Summary of Unigraphics Input Entities
+SUMMARY-	For Unigraphics File: C:\Users\FELIXL~1.HOC\AppData\Local\Temp\1\felint0x2k02n_2qp.prt
+SUMMARY-	------------------------------------------------------------------
+SUMMARY-	Entity Type					Count
+SUMMARY-	------------------------------------------------------------------
+SUMMARY-	Line .....................................:	8
+SUMMARY-	Arc ......................................:	2
+SUMMARY-	Circle ...................................:	39
+SUMMARY-	------------------------------------------------------------------
+SUMMARY-	Total ....................................:	49
+SUMMARY-	------------------------------------------------------------------
+SUMMARY-
+STATUS-
+INFO-
+INFO-		Writing File: C:\Users\felix.l.hoch\OneDrive - Syddansk Universitet\Documents\OpenSpotter-Hub\OpenSpotter-Syringe\CAD\Syringe_Spotter_V2\Waterjetting\Baseplate_Syringe_Spotter_5mm_Alu.dxf
+SUMMARY-	Summary of AutoCAD Output Entities
+SUMMARY-	------------------------------------------------------------------
+SUMMARY-	Entity Type					Count
+SUMMARY-	------------------------------------------------------------------
+SUMMARY-	Arc ......................................:	2
+SUMMARY-	Circle ...................................:	39
+SUMMARY-	Line .....................................:	8
+SUMMARY-	Layout ...................................:	6
+SUMMARY-	------------------------------------------------------------------
+SUMMARY-	Total ....................................:	55
+SUMMARY-	------------------------------------------------------------------
+SUMMARY-
+INFO-
+INFO-		End of Translation: Fri Jun 26 15:05:49 2026
+INFO-		Translation CPU time: 0 m, 0 sINFO-

@@ -1,61 +1,120 @@
 # Getting Started
 
-This guide is for contributors who want to run and change the syringe control application quickly.
+This guide covers the desktop application and the minimum safe path to inspect the included Klipper configuration. Run commands from `OpenSpotter-Syringe/Spotter-Control_v3`.
 
-## 1. Setup
+## Install and run
 
-```bash
-cd Spotter-Control_v3
+Create a virtual environment and install the application in editable mode:
+
+```powershell
 python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-python main.py
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e .
+openspotter-control
 ```
 
-On macOS or Linux, activate the environment with:
+On macOS or Linux, activation is:
 
-```bash
+```sh
+python3 -m venv .venv
 source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e .
+openspotter-control
 ```
 
-## 2. Validate Baseline
+The app is a local Tkinter program with optional direct Moonraker control. It still opens and generates saved G-code when no printer is available.
+`python main.py` and `python -m app` remain supported source launchers. Linux
+Python installations may also require `python3-tk`.
 
-There is no formal test suite yet. Use Python compilation as the current smoke check:
+## Validate the checkout
 
-```bash
-cd Spotter-Control_v3
+```powershell
+python -m pip install -e ".[test]"
 python -m compileall -q app
+python -m unittest discover -s tests -v
 ```
 
-For GUI validation, launch the app and confirm:
-- global defaults load from `config/config_global.json`
-- grid and spiral tabs restore from `config/config_states.json`
-- build plate images load from `assets/images`
-- G-code save dialogs open in `output/gcodes`
+Source checkouts retain `config`, `logs`, and `output` beside the application.
+Installed and standalone builds use per-user writable storage. See
+[Spotter-Control_v3/DEPLOYMENT.md](Spotter-Control_v3/DEPLOYMENT.md) for paths,
+portable mode, first-run seeding, and migration.
 
-## 3. Key Files
+For a visual smoke test, confirm that:
 
-- [Spotter-Control_v3/main.py](Spotter-Control_v3/main.py): app launcher.
-- [Spotter-Control_v3/app/main_v3.py](Spotter-Control_v3/app/main_v3.py): application bootstrap.
-- [Spotter-Control_v3/app/gui_v3.py](Spotter-Control_v3/app/gui_v3.py): main Tkinter UI.
-- [Spotter-Control_v3/app/input_configs.py](Spotter-Control_v3/app/input_configs.py): field schema and UI theme.
-- [Spotter-Control_v3/app/canvas_drawer.py](Spotter-Control_v3/app/canvas_drawer.py): canvas preview.
-- [Spotter-Control_v3/app/grid_gcode.py](Spotter-Control_v3/app/grid_gcode.py): grid G-code generation.
-- [Spotter-Control_v3/app/spiral_gcode.py](Spotter-Control_v3/app/spiral_gcode.py): spiral G-code generation.
-- [Spotter-Control_v3/app/paths.py](Spotter-Control_v3/app/paths.py): central runtime paths.
+- the window uses the graphite/grey theme;
+- global defaults load locked from `config/config_global.json`;
+- saved registered-plugin counts restore from `config/config_states.json`;
+- the canvas shows the editable 60 × 60 mm CAPTRON image centred at TCP X0/Y0;
+- scroll zoom, drag pan, and **FIT VIEW** work;
+- **VISUAL OBJECTS** edits persisted rectangles, circles, and imported images; unlinked geometry remains display-only;
+- the Visual Objects list is front-to-back, so a higher row appears above a lower row and Move Up/Move Down changes that stack;
+- each legacy container circle follows its matching `global.containerN_x/y` values, and reverse editing is blocked until global machine parameters are unlocked;
+- **IMPORT IMAGE…** starts in the asset folder, accepts other filesystem paths, and scales the selected image to its entered millimetre width/height;
+- **EDIT G-CODE WORKFLOW** validates, previews, and saves workflow changes.
+- **MACHINE PARAMETERS** opens the persistent maximized global editor immediately left of **HELP**;
+- the right-side Machine Control panel exposes connection state, Start/Pause/Resume/Stop, Emergency Stop, XYZ jog, live Z, and the exact virtual-SD read/queued cursor;
+- **CONFIG** opens masked local Moonraker settings and **RETRY** restarts monitoring.
 
-## 4. Typical Change Workflow
+## Generate and reload a job
 
-1. Keep source changes in `Spotter-Control_v3/app`.
-2. Keep default values in `Spotter-Control_v3/config`.
-3. Put runtime logs in `Spotter-Control_v3/logs`.
-4. Keep generated G-code under `Spotter-Control_v3/output/gcodes`.
-5. Run `python -m compileall -q app`.
-6. Update docs in the same change.
+1. Select Grid or Spiral mode and add at least one recipe.
+2. Review global settings, recipe coordinates, volumes, containers, maintenance options, and the workflow.
+3. Select **GENERATE G-CODE** and choose a base path.
+4. Inspect every generated command before sending it to a machine.
 
-## 5. Hardware Integration Checklist
+If both grid and spiral recipes exist, choosing `experiment.gcode` produces:
 
-1. Review Klipper files in `Spotter-Control_v3/hardware/klipper/config`.
-2. Confirm syringe-specific settings in `Spotter-Control_v3/hardware/syring.cfg`.
-3. Generate a small dry-run G-code file before running fluid experiments.
-4. Check physical travel limits before enabling unattended motion.
+```text
+experiment_grid.gcode
+experiment_grid_settings.json
+experiment_spiral.gcode
+experiment_spiral_settings.json
+```
+
+Each schema-version 3 settings profile records registered plugin recipes, global
+values, derived runtime values, and the effective workflow. Compatibility arrays
+for the built-in grid and spiral plugins remain present. **LOAD PROFILE** accepts
+JSON only. Loading replaces the current pattern tabs; if the profile contains
+`workflow`, the validated embedded workflow is also saved over
+`config/config_gcode_workflow.json`.
+
+An embedded workflow is executable machine-command data. The application asks separately before replacing the active workflow, and direct Start shows both the workflow hash and exact artifact hash before upload.
+
+The save dialog starts in `output/gcodes`, which is an ignored runtime directory. Copy outputs to an experiment record or another durable location when they must be retained.
+
+## Connect and run through Moonraker
+
+1. Deploy the current `hardware.cfg`, `movement_safety.cfg`, and `remote_control.cfg` together, retain the matching application `config/config_gcode_workflow.json`, and restart Klipper.
+2. Select **CONFIG** in Machine Control and enter the Moonraker host/IP, port, protocol, optional route prefix, and API key. The created `Spotter-Control_v3/config/config_moonraker.json` is local and ignored by Git.
+3. In `moonraker.conf`, trust only the exact control PC or isolated machine subnet and firewall TCP port 7125; do not expose motion endpoints to an entire shared private network.
+4. Confirm the panel reports connected and Klippy ready.
+5. Confirm Klipper advertises `OPENSPOTTER_CONTRACT_V3`, `OPENSPOTTER_JOB_HOME`, and `OPENSPOTTER_JOB_REHOME_Z`. If the contract is missing or stale, Start/Home/jog controls remain disabled.
+6. Physically load and verify the detachable BLTouch before a workflow that uses `MESH`.
+7. Confirm saved TCP calibration is ready at coordinate version 2.
+8. Keep Global Machine Parameters locked, select Grid or Spiral mode, and choose **START CURRENT RECIPE**.
+9. Review the captured mode/count, workflow hash, full artifact SHA-256, byte/line count, remote path, and motion warning. Start only if they describe the intended experiment.
+
+Direct Start captures an immutable snapshot, generates it off the Tk thread, checks resource limits and live machine bounds, uploads without auto-start/queueing, repeats the ready/idle check, and then sends one persistent-WebSocket Start request. Identical content uses the same hash-based remote filename. The newest 20 local runtime artifacts per mode are retained.
+
+The G-code tab maps Moonraker’s virtual-SD file cursor to the exact local artifact. This is a read/queued position and may be ahead of physical execution. If a response is lost after a command was sent, the outcome is treated as unknown and normal controls interlock until monitoring reconnects; Emergency Stop remains available.
+
+If `.local` connection setup is slow on a Pi Zero, enter its fixed IPv4 address in **CONFIG**. XYZ jog requires homed XYZ, no active virtual-SD job, needle offsets and bed mesh off, and at least 30 mm/min. Safe Home requires sensorless `homing_retract_dist: 0` and performs reviewed 2-second settle/release cycles plus a physical Z clearance of at least 35 mm and all enabled dead-zone clearances.
+
+The **MANUAL / CONSOLE** editor is for small tests, not arbitrary Klipper administration. It accepts diagnostic queries and bounded `G90`/`G91` plus `G0`/`G1` XYZ/F motion with explicit mode/feed, live bounds, the same homing/offset/mesh/virtual-SD guards, and a 60-second estimated cap. Unknown or safety-bypassing commands are blocked. `M112` uses Moonraker's HTTP Emergency Stop; partial execution errors, timeouts, disconnects, or E-stop keep controls latched until the printer is inspected and monitoring reconnects.
+
+Preflight is not a complete interpreter for arbitrary custom macros. After any workflow/profile/firmware or fixture change, inspect the exact artifact and perform an elevated, fluid-free dry run.
+
+## Before hardware motion
+
+Read the [Klipper hardware guide](Spotter-Control_v3/hardware/klipper/README.md) in full. In particular:
+
+1. Confirm the machine is actually wired as the Einsy RAMBo 1.1a configuration describes.
+2. Install the custom `tcp_calibration.py` extra before enabling `tcp_calibration.cfg`.
+3. Verify all pins, axis directions, limits, sensorless homing, syringe travel, and emergency-stop behavior with tools clear of the work area.
+4. Physically inspect the detachable BLTouch, then initialize its saved state with `SET_BLTOUCH_DOCK_STATE STATE=parked` or `STATE=loaded`. This command records state and does not move the probe.
+5. Commission the TCP optics and obtain `tcp_ready=True` before enabling needle-tip offsets.
+6. Run a small, elevated, fluid-free job and compare the preview, generated G-code, and physical motion.
+
+The default workflow homes and meshes, but it does not run TCP calibration or automatically load/park the detachable BLTouch. Saved-state preflight reduces mistakes but does not verify physical attachment. Tool-state preparation and controlled hardware commissioning remain explicit operator steps.

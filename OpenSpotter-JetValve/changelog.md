@@ -1,0 +1,99 @@
+## Change Log
+
+- 2026-06-11: Fixed MCU progress completion to ignore target `toolhead.position` samples and use only `motion_report.live_position`.
+- 2026-06-11: Optimized spotting backend for large R2R jobs by replacing full spot/path caches with virtual row-indexed sequence access, capped in-flight dispatch top-ups, dispatched-window position projection, and bounded R2R progress keys.
+- 2026-06-11: Optimized AGENTS/docs for compact agent use, removed stale CanvasController and generated artifacts, and added R2R two-row canvas rendering with row legends.
+- 2026-06-11: Fixed soft Stop after Pause by clearing the worker paused state and marking local spotting dispatch not running while the worker exits.
+- 2026-05-26: Made spotting send-ahead and refill-threshold values editable in the Klipper machine config and changed dispatch refill to send the next burst only after the configured completed-spot threshold.
+- 2026-05-26: Added a persistent black X live toolhead marker to the spotting canvas using gantry position updates.
+- 2026-05-26: Added a Pi file editor Copy To Local action that downloads the selected Pi file into its mapped local project copy after confirmation.
+- 2026-05-26: Made the Pi file editor root selector content-aware so root labels and dropdown text are not clipped.
+- 2026-05-26: Removed connect-time Pi file sync and moved Pi file editor Moonraker file/service operations to background workers with Qt-signal UI updates.
+- 2026-05-26: Disabled the Pi file editor top-bar action until Moonraker reports connected, while keeping the direct open guard.
+- 2026-05-26: Added detailed system-log breadcrumbs and exception handling for Pi file editor open, reload, sync, file, service, and restart actions.
+- 2026-05-26: Added a Moonraker-backed Pi file editor with config/script save-to-Pi, local Pi-target upload prompts, Klipper restart, and Moonraker-authorized service actions.
+- 2026-05-22: Added Codex workflow guidance, tightened stable project docs, removed stale duplicate Klipper example config and unused pulse-width signal, and ignored generated caches, virtualenv files, and runtime logs.
+- 2026-05-22: Removed the blocking per-move REST position query from spotting dispatch, added Moonraker WebSocket toolhead status subscription, increased the default spotting lookahead window, and changed async valve macros to delayed off timers instead of G4 dwell.
+- 2026-05-23: Added per-grid speed propagation into planned spots, async move feedrates, and the SHOOT SPEED_MM_S macro parameter for synced Klipper moves.
+- 2026-05-23: Changed valve burst macros from PWM duty-cycle output to explicit full-on/full-off cycles so CYCLES greater than one produces physical valve edges.
+- 2026-05-23: Capped `logs/dod_system.log` to the newest 1000 lines through the central logger service.
+- 2026-05-23: Aligned Python valve command builders and docs with the custom `valve_pulse`-backed Klipper macros, including `PRE_FIRE_WAIT` and `POST_FIRE_WAIT` in spotting `SHOOT` commands.
+- 2026-05-23: Raised the valve `on_ms` schema minimum to 2.0 ms to match the current `valve_pulse valve_0` macro minimum.
+- 2026-05-23: Replaced the Klipper `valve_pulse` macro path with a Pi-side Arduino valve bridge, added bridge trigger scripts, and documented Arduino USB port discovery and setup.
+- 2026-05-23: Set the valve `off_ms` schema minimum/default to 2.0 ms to match the current Arduino firmware timing clamp.
+- 2026-05-23: Corrected Pi Arduino bridge dependency setup to use Debian `python3-serial` or a venv instead of system pip on externally managed Raspberry Pi OS.
+- 2026-05-23: Added Windows PowerShell SSH/SCP copy steps for installing Arduino bridge scripts onto the Pi.
+- 2026-05-23: Documented the missing Klipper `gcode_shell_command` extension failure and KIAUH install check for Arduino bridge macros.
+- 2026-05-23: Documented running the Arduino valve bridge as a systemd boot service and clarified that `SHOOT` G-code should only trigger an already-running bridge.
+- 2026-05-24: Removed explicit `ASYNC` valve behavior from the schema, UI, command builder, and Klipper macro; `SHOOT` now uses pre/post waits as the only timing controls around Arduino firing.
+- 2026-05-24: Restored `SHOOT X/Y/SPEED_MM_S` for spotting so each spot is sent as one macro call that places the G1 move and Arduino trigger together.
+- 2026-05-24: Made the spotting dispatch window explicit as a dynamic per-job cap, `min(total_spots, dispatch_window_spots)`, so 25-spot jobs queue upfront without flooding large jobs.
+- 2026-05-24: Replaced blocking Start-path REST toolhead status checks with cached WebSocket toolhead status and a short homing-status wait after start G-code.
+- 2026-05-24: Changed the Klipper listener to use cached WebSocket toolhead status when connected and reserve REST polling for fallback status only.
+- 2026-05-24: Added Klipper macros and setup docs for starting or restarting the Arduino valve bridge systemd service from Mainsail.
+- 2026-05-24: Added Moonraker-connect G-code dispatch and set the default connect command to `START_ARDUINO_VALVE_BRIDGE`.
+- 2026-05-24: Changed Arduino bridge service macros to use non-interactive `sudo -n` and documented the required passwordless sudoers rule.
+- 2026-05-24: Documented venv-based Arduino bridge service ExecStart and improved the bridge pyserial error message.
+- 2026-05-24: Reverted the Arduino valve firing path to always send the original `O/P/K` serial sequence and removed newer `B`/`X` command assumptions.
+- 2026-05-24: Raised the default bounded spotting lookahead cap to 25 so small grids queue upfront while large jobs remain capped.
+- 2026-05-24: Raised the default bounded spotting lookahead cap to 500, batched MCU lookahead dispatch into multi-line Moonraker requests, ignored stale `SPOTTER_SHOOT_DONE` GUI messages, and made log trimming non-fatal during high-rate spotting.
+- 2026-05-24: Changed spotting progress and dynamic lookahead refill experiments around `arduino_valve_fire` responses and documented that unconditional `M400` would force stop-at-each-spot motion.
+- 2026-05-24: Added Pi host-MCU Arduino trigger mode with D2 edge-trigger firmware support, bridge timing preload via `O/P/C`, `SET_ARDUINO_VALVE_TIMING`, and bounded lookahead refill for MCU-triggered spotting.
+- 2026-05-24: Armed the Arduino D2 edge-trigger path only after `SET_ARDUINO_VALVE_TIMING` preload so boot-time pin noise no longer fires the valve on startup.
+- 2026-05-24: Made the Klipper `SHOOT` macro self-preload Arduino timing in MCU trigger mode so manual macro shots arm the Arduino before toggling the trigger edge.
+- 2026-05-24: Changed the GUI `SHOOT` macro default to the USB bridge path for visible console responses, while keeping the MCU GPIO trigger path explicit via `TRIGGER_MODE=mcu`.
+- 2026-05-24: Replaced the USB `M400` wait with a Pi-side position-tolerance poll in `arduino_valve_fire.py`, threaded `spot_position_tolerance_mm` through config and command generation, and documented the local wait path.
+- 2026-05-24: Tightened the Pi-side USB wait helper to project `motion_report.live_velocity` between updates and derive a faster sample interval from the requested tolerance for high-speed shots.
+- 2026-05-24: Raised the USB `arduino_valve_fire` shell timeout to 10 seconds so the local position wait can complete on longer move-and-fire tests.
+- 2026-05-24: Rejected macro-response completion for queued MCU spotting after logs showed `SPOTTER_SHOOT_DONE` was emitted during macro expansion; MCU canvas completion and dynamic refill now follow realtime `motion_report.live_position`.
+- 2026-05-24: Reset completed canvas spots at run start and made MCU position completion sequence-ordered so stale start positions or reverse travel cannot complete the first dispatch window.
+- 2026-05-24: Added timestamped gantry position samples and planned-path projection for MCU spotting completion so sparse live-position updates can refill the dynamic lookahead after the first dispatch window.
+- 2026-05-24: Switched the Pi-side wait helper to `motion_report.live_position` so the USB fallback follows realtime motion instead of the queued toolhead target.
+- 2026-05-24: Moved USB SHOOT dispatch out of the live macro path into a delayed G-code request so motion can keep queueing while the Pi helper waits on realtime position.
+- 2026-05-24: Subscribed the Moonraker websocket client to `motion_report` live position updates and taught the Klipper cache to accept realtime motion-report coordinates as well as toolhead positions.
+- 2026-05-24: Removed the delayed USB shell-command path from continuous `SHOOT`; MCU trigger mode now preloads timing once and each spot queues only the move plus `SET_PIN` edge.
+- 2026-05-24: Changed GUI MCU-mode `SHOOT` commands to omit `ON_MS`, `OFF_MS`, and `CYCLES` so `SET_ARDUINO_VALVE_TIMING` is the only timing source for continuous runs.
+- 2026-05-24: Added a per-`SHOOT` Moonraker response-id completion path during MCU spotting; this is retained only as an explicit fallback and is not the current default.
+- 2026-05-24: Updated canvas spot item keys to match grid/row/column-aware spotting progress keys so completed spots recolor during command-response completion.
+- 2026-05-24: Changed `SHOOT` to wait for each move to complete before firing so spot execution is move, shoot, then next move.
+- 2026-05-24: Reduced spotting lookahead to a 50-spot cap with 25-line dispatch batches and changed active Stop/Close to request Moonraker emergency stop while clearing pending local scripts.
+- 2026-05-24: Reverted active Stop/Close to a soft stop, reduced normal lookahead to a 25-spot cap with 5-line batches, and kept Moonraker emergency stop reserved for true emergency shutdown.
+- 2026-05-25: Added second-valve MCU trigger support with Arduino D14/D19 trigger inputs, D7/D6 valve outputs, Pi GPIO17/GPIO27 Klipper trigger pins, and per-valve USB timing preload.
+- 2026-05-25: Moved the two-valve Arduino trigger inputs from polled D14/D19 pins to interrupt-capable D2/D3 while keeping Pi GPIO17/GPIO27 and D7/D6 valve outputs.
+- 2026-05-25: Hardened the two-valve trigger path by removing Arduino INPUT_PULLUP from D2/D3 trigger inputs.
+- 2026-05-26: Changed Klipper MCU trigger macros back to deterministic per-valve toggle edges, removed delayed-gcode trigger resets, added Arduino stable-level validation for CHANGE interrupts, and made the GUI manual fire action preload timing before MCU-mode shots.
+- 2026-05-26: Removed grid editing and grid-update emission from the machine configuration popup so main-window grid edits are not overwritten by machine-config saves.
+- 2026-05-21: Removed upper timing caps from valve timing schema and Klipper validation so timing fields only enforce minimums in the GUI and macros.
+- 2026-05-21: Changed async valve firing to use an explicit timed on/off pulse so the valve turns off after `ON_MS` instead of waiting for the next queued motion to finish.
+- 2026-05-21: Added sync pre_fire_wait and post_fire_wait support to valve configuration, manual valve firing, and the SHOOT macro so stationary shots can settle before and after firing without changing the async planner flow.
+- 2026-05-20: Unified spotting around a single SHOOT payload that always includes X/Y, while Klipper now treats ASYNC shots as fire-only and sync shots as move-then-fire so the app no longer needs separate SHOOT command shapes.
+- 2026-05-20: Made spotting progress tracking resilient to missed gantry polls so the bounded dispatch window can advance past already-completed queued spots instead of stalling at the initial 3-command burst.
+- 2026-05-20: Logged the Moonraker send_gcode response payload in the dod_system log for both websocket and REST paths so spotting and macro dispatches leave the actual process reply in the trace.
+- 2026-05-20: Routed Moonraker REST and WebSocket debug output through the rotating dod_system log, added a plain-language start-to-finish flow guide, reused the main Moonraker connection for spotting, reduced heavy status polling during Start, added explicit shutdown cleanup for Moonraker subscriptions, deferred Moonraker connection until after the UI is shown, added GUI-edited start/end G-code scripts stored in `config/machine_config.json`, and moved the start-script execution ahead of homing validation.
+- 2026-05-20: Start, Pause, and Stop controls are disabled until Moonraker connection_status_changed reports connected.
+- 2026-05-20: Disabled or unavailable controls now use a light-red style so unusable actions are visually obvious.
+- 2026-05-20: Klipper thread progress now emits on the active AppSignals instance so gantry updates refill the bounded spotting dispatch window.
+- 2026-05-19: Filtered grid valve selectors to active valves only and refreshed the grid panel valve list after config saves.
+- 2026-05-19: Fixed the canvas refresh path so grid updates redraw the background grid layer as well as spot items.
+- 2026-05-19: Added an Active checkbox to each grid tab and made the spotting planner ignore inactive grids.
+- 2026-05-19: Added editable grid names to the grid tabs and kept tab labels synced to the stored names without renumbering surviving grids.
+- 2026-05-19: Allowed grids to be removed down to zero and reset the stale default grid state; empty grid panels now render a clear empty state.
+- 2026-05-19: Moved grid valve assignment into each grid tab and removed the standalone assignment button/dialog.
+- 2026-05-19: Set explicit canvas z-order so grid visuals render above the background matrix grid.
+- 2026-05-19: Switched the Klipper service to the unified SHOOT macro and centralized the command parameter list in code.
+- 2026-05-19: Added synced spotting dispatch for valves with async off by sending `SHOOT X=... Y=...` so Klipper moves and fires in one macro call.
+- 2026-05-20: Added a preflight homing check for spotting so the app aborts before sending synced commands if X/Y are not homed.
+- 2026-05-20: Removed travel-time pacing from spotting dispatch and switched progress updates to live gantry position tracking.
+- 2026-05-20: Switched spotting dispatch to a bounded rolling lookahead window so only the next few moves are sent to Klipper at once.
+- 2026-05-20: Made spotting fail fast on Moonraker/Klippy disconnects so queued jobs do not hang waiting for completions that will never arrive.
+- 2026-05-19: Removed the standalone valve control bar and moved fire actions into each valve's machine-config tab.
+- 2026-05-19: Split the machine configuration Valves tab into per-valve sub-tabs and removed pulse-width handling from valve config, command builders, and default valve data.
+- 2026-05-19: Removed `CalibrationManager` from the model layer and tests; calibration workflow is now documented as a TODO instead of shipping broken imports.
+- 2026-05-19: Removed simulation mode from the spotting controls and worker; spotting now always targets connected hardware and the progress bar reflects completed live spots.
+- 2026-05-17: Documentation set reduced and simplified. Added AGENTS.md and removed stale status/snapshot docs.
+- 2026-05-17: Normalized style and formatting across remaining human docs for consistent headings, references, and command sections.
+- 2026-05-17: Replaced macros.cfg with valve_macros.cfg in docs/klipper_configs, removed separate mcu snippet usage, and aligned references with printer.cfg as source for MCU configuration.
+- 2026-05-17: Added optional HTTP `headers` and `route_prefix` support to `services/klipper_service.py` and `services/moonraker_websocket.py`; updated `docs/GUI_INTEGRATION.md` to document auth and routing; removed uploaded `moonraker_mainsail.conf` after validation.
+- 2026-05-17: Added latched valve control macros (`VALVE_SET`, `VALVE_ON`, `VALVE_OFF`) and a hold mode to `SHOOT` so valves can stay on permanently without a pulse limit; documented the new commands in `docs/klipper_configs/README.md`.
+- 2026-05-18: Grid spot execution now sends `SHOOT` with valve parameters from `config/valve.config.json`; the valve UI and machine config editor expose async/hold/on/off/cycles fields for the shoot command.
+- 2026-05-18: Removed the redundant pulse-width slider from the valve panel; the valve config fields now provide the only SHOOT parameter inputs in the GUI.
