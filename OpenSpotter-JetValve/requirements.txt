@@ -1,0 +1,14 @@
+PyQt6==6.7.1
+PyQt6-Qt6==6.7.2
+PyQt6-sip==13.8.0
+numpy==2.1.1
+opencv-python==4.10.0.84
+matplotlib==3.8.4
+websockets==12.0
+requests==2.32.0
+Pillow==10.4.0
+pytest==8.3.3
+pytest-cov==5.0.0
+pyserial==3.5
+setuptools==75.1.0
+wheel==0.44.0

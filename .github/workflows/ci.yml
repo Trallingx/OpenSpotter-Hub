@@ -1,0 +1,145 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  control-app:
+    name: Control app / ${{ matrix.os }} / Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+        python-version:
+          - "3.8"
+          - "3.12"
+
+    defaults:
+      run:
+        working-directory: OpenSpotter-Syringe/Spotter-Control_v3
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: OpenSpotter-Syringe/Spotter-Control_v3/pyproject.toml
+
+      - name: Install Ubuntu GUI test dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes python3-tk xvfb
+
+      - name: Install application and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[test]"
+
+      - name: Compile Python sources
+        run: python -m compileall -q app
+
+      - name: Run full test suite on Windows
+        if: runner.os == 'Windows'
+        run: python -m unittest discover -s tests -v
+
+      - name: Run full test suite on Ubuntu
+        if: runner.os == 'Linux'
+        run: xvfb-run -a python -m unittest discover -s tests -v
+
+      - name: Build wheel
+        run: python -m pip wheel . --no-deps --wheel-dir "${{ runner.temp }}/wheelhouse"
+
+      - name: Smoke-test installed wheel outside checkout
+        shell: python
+        env:
+          WHEEL_DIR: ${{ runner.temp }}/wheelhouse
+        run: |
+          import os
+          import pathlib
+          import subprocess
+          import sys
+          import tempfile
+          import textwrap
+          import venv
+
+          wheel_dir = pathlib.Path(os.environ["WHEEL_DIR"])
+          wheels = sorted(wheel_dir.glob("openspotter_control-*.whl"))
+          if len(wheels) != 1:
+              raise SystemExit(f"Expected one OpenSpotter wheel, found: {wheels}")
+
+          smoke_root = pathlib.Path(tempfile.mkdtemp(prefix="openspotter-wheel-smoke-"))
+          environment_dir = smoke_root / "venv"
+          runtime_dir = smoke_root / "runtime"
+          venv.EnvBuilder(with_pip=True).create(environment_dir)
+          if os.name == "nt":
+              smoke_python = environment_dir / "Scripts" / "python.exe"
+          else:
+              smoke_python = environment_dir / "bin" / "python"
+
+          subprocess.run(
+              [str(smoke_python), "-m", "pip", "install", "--upgrade", "pip"],
+              check=True,
+          )
+          subprocess.run(
+              [str(smoke_python), "-m", "pip", "install", str(wheels[0])],
+              check=True,
+          )
+
+          smoke_code = textwrap.dedent(
+              """
+              import importlib.metadata
+              import runpy
+              import sys
+              import types
+
+              import app
+              from app.paths import PATH_MODE, RESOURCE_DIR, RUNTIME_DIR, ensure_runtime_dirs
+
+              assert app.__version__ == importlib.metadata.version("openspotter-control")
+              assert PATH_MODE == "custom"
+              assert (RESOURCE_DIR / "config" / "config_global.json").is_file()
+              assert (RESOURCE_DIR / "assets" / "Captron-TCP.png").is_file()
+
+              seeded = ensure_runtime_dirs()
+              assert seeded
+              assert (RUNTIME_DIR / "config" / "config_global.json").is_file()
+              assert (RUNTIME_DIR / "config" / "config_gcode_workflow.json").is_file()
+              assert not (RUNTIME_DIR / "config" / "config_moonraker.json").exists()
+
+              calls = []
+              fake_main = types.ModuleType("app.main_v3")
+              fake_main.main = lambda: calls.append("main")
+              sys.modules["app.main_v3"] = fake_main
+              # Executes the same app/__main__.py path as `python -m app`
+              # while replacing the long-running Tk delegate for CI.
+              runpy.run_module("app", run_name="__main__")
+              assert calls == ["main"]
+              """
+          )
+          smoke_environment = os.environ.copy()
+          smoke_environment["OPENSPOTTER_HOME"] = str(runtime_dir)
+          smoke_environment.pop("PYTHONPATH", None)
+          subprocess.run(
+              [str(smoke_python), "-c", smoke_code],
+              cwd=str(smoke_root),
+              env=smoke_environment,
+              check=True,
+          )

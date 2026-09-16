@@ -31,12 +31,14 @@ import math
 #   y_beam_coord = (-x + y) / sqrt(2)
 DEFAULT_X_BEAM_NORMAL = (0.70710678118, 0.70710678118)
 DEFAULT_Y_BEAM_NORMAL = (-0.70710678118, 0.70710678118)
+TCP_COORDINATE_VERSION = 2
 TIP_SEARCH_EPSILON = 0.000001
 FINAL_CENTER_Z_DROP = 2.0
 PERSISTED_RESULT_NAMES = (
     'tip_x', 'tip_y', 'tip_z',
     'expected_x', 'expected_y', 'expected_z',
-    'offset_x', 'offset_y', 'offset_z')
+    'offset_x', 'offset_y', 'offset_z',
+    'coordinate_version')
 
 
 def _direction_sign(value, name, error):
@@ -473,6 +475,10 @@ class TCPCalibration:
             "SAVE_VARIABLE VARIABLE=%s VALUE=%s"
             % (name, "True" if value else "False"))
 
+    def _save_int(self, name, value):
+        self.gcode.run_script_from_command(
+            "SAVE_VARIABLE VARIABLE=%s VALUE=%d" % (name, int(value)))
+
     def _get_saved_variables(self):
         save_variables = self.printer.lookup_object('save_variables', None)
         if save_variables is None:
@@ -638,6 +644,7 @@ class TCPCalibration:
             'offset_x': offset_x, 'offset_y': offset_y, 'offset_z': offset_z,
             'expected_x': expected_x, 'expected_y': expected_y,
             'expected_z': expected_z,
+            'coordinate_version': TCP_COORDINATE_VERSION,
             'x_beam_coord': x_final['coord'],
             'y_beam_coord': y_final['coord'],
             'x_tip_last_hit_z': x_tip['last_hit_z'],
@@ -647,7 +654,10 @@ class TCPCalibration:
         # Only values used by macros survive restart; edge diagnostics remain
         # available through get_status() for the current Klipper session.
         for name in PERSISTED_RESULT_NAMES:
-            self._save_float('tcp_' + name, self.last_result[name])
+            if name == 'coordinate_version':
+                self._save_int('tcp_' + name, self.last_result[name])
+            else:
+                self._save_float('tcp_' + name, self.last_result[name])
         self._save_bool('tcp_ready', True)
         gcmd.respond_info(
             "TCP: done. Tip X=%.6f Y=%.6f Z=%.6f offsets X=%.6f Y=%.6f "

@@ -7,11 +7,20 @@ Provides:
 - Common data collection for both grid and spiral generators
 """
 import os
+import copy
+from contextlib import contextmanager
 from tkinter import filedialog
 
-from .SpotterFunctions import build_containers, read_entries_as_dict
+from .core.configuration import entries_to_dict
+from .core.domain import build_containers
+from .core.geometry import acceptance_square
+from .core.storage import atomic_text_writer
 from .input_configs import GLOBAL_FIELDS
-from .paths import GCODE_DIR
+from .paths import GCODE_DIR, WORKFLOW_CONFIG
+from .runtime_logging import get_logger, log_options
+
+
+logger = get_logger("generation.shared")
 
 
 def prompt_save_base_path(default_filename: str):
@@ -19,13 +28,20 @@ def prompt_save_base_path(default_filename: str):
     Prompt user to select a base filename and location for G-code output.
     Returns the full filepath, or None if cancelled.
     """
-    return filedialog.asksaveasfilename(
+    selected_path = filedialog.asksaveasfilename(
         defaultextension=".gcode",
         initialfile=default_filename,
         initialdir=str(GCODE_DIR),
         filetypes=[("G-code files", "*.gcode"), ("All files", "*.*")],
         confirmoverwrite=False,
     )
+    log_options(
+        logger,
+        "output_path.selected" if selected_path else "output_path.cancelled",
+        default_filename=default_filename,
+        selected_path=selected_path or None,
+    )
+    return selected_path
 
 
 def derive_output_path(base_path: str, suffix: str) -> str:
@@ -40,29 +56,26 @@ def derive_output_path(base_path: str, suffix: str) -> str:
     return f"{root}_{suffix}{ext}"
 
 
+@contextmanager
+def atomic_text_output(filepath: str):
+    """Write a text output through the shared crash-safe storage service."""
+    destination = os.path.abspath(filepath)
+    try:
+        with atomic_text_writer(destination, replace=os.replace) as handle:
+            yield handle
+    except Exception:
+        logger.exception(
+            "output.atomic_write_failed | destination=%s",
+            destination,
+        )
+        raise
+    log_options(logger, "output.atomic_write_completed", destination=destination)
+
+
 def compute_acceptance_square(entry_dict):
-    """
-    Convert acceptance square size + base origin into printer coordinates.
-    
-    Keeps canvas orientation (bottom-left is minimum X/Y).
-    Returns dict with keys: x_left, x_right, y_bottom, y_top
-    """
-    base_x = float(entry_dict['base_square_x'])
-    base_y = float(entry_dict['base_square_y'])
-    acceptance_x = float(entry_dict['acceptance_square_x'])
-    acceptance_y = float(entry_dict['acceptance_square_y'])
-    x_abs = float(entry_dict['x_cord_of_y_line'])
-    y_abs = float(entry_dict['y_cord_of_x_line'])
+    """Compatibility wrapper for :func:`app.core.geometry.acceptance_square`."""
 
-    x_left = x_abs + (base_x - acceptance_x) / 2
-    y_bottom = y_abs + (base_y - acceptance_y) / 2
-
-    return {
-        'x_left': x_left,
-        'x_right': x_left + acceptance_x,
-        'y_bottom': y_bottom,
-        'y_top': y_bottom + acceptance_y,
-    }
+    return acceptance_square(entry_dict)
 
 
 def collect_common_generation_data(self):
@@ -82,20 +95,25 @@ def collect_common_generation_data(self):
     - speeds: movement_speed, decent_speed, adcent_speed, dispensing_speed, refilling_speed
     - syringe: max_syringe_vol, drop_extra_aspirate, max_syringe_mm, min_syringe_mm, priming_vol
     - z_heights: z_movement_pos_low, z_movement_pos_high
-    - probe_params: probe_ram_height, probe_return_height, calibration_height, probe_feed_rate, calibration_feed_rate
-    - timing: row_start_wait, calibration_wait, emptying_wait, rinse_aspiration_wait, rinse_final_wait, syringe_aspirate_wait, syringe_prime_wait
+    - probe_params: calibration_height, calibration_feed_rate
+    - timing: row_start_wait, emptying_wait, rinse_aspiration_wait, rinse_final_wait, syringe_aspirate_wait, syringe_prime_wait
     - plate: present_plate_y, present_plate_speed
     """
-    entry_dict = read_entries_as_dict(self.entry, GLOBAL_FIELDS)
+    entry_dict = entries_to_dict(self.entry, GLOBAL_FIELDS)
     x_abs = float(entry_dict['x_cord_of_y_line'])
     y_abs = float(entry_dict['y_cord_of_x_line'])
     x_offset = x_abs + float(entry_dict['tuning_offset_x'])
     y_offset = y_abs + float(entry_dict['tuning_offset_y'])
     containers = build_containers(entry_dict)
 
-    return {
+    common = {
         # Raw config
         'entry_dict': entry_dict,
+        'workflow_path': os.path.join(
+            getattr(self, 'config_dir', str(WORKFLOW_CONFIG.parent)),
+            WORKFLOW_CONFIG.name,
+        ),
+        'workflow_data': copy.deepcopy(getattr(self, 'workflow_data', None)),
         # Spatial coords
         'x_abs': x_abs,
         'y_abs': y_abs,
@@ -123,14 +141,10 @@ def collect_common_generation_data(self):
         'z_movement_pos_low': float(entry_dict['z_movement_pos_low']),
         'z_movement_pos_high': float(entry_dict['z_movement_pos_high']),
         # Probe parameters (all defaults from input_configs.py GLOBAL_FIELDS)
-        'probe_ram_height': float(entry_dict['probe_ram_height']),
-        'probe_return_height': float(entry_dict['probe_return_height']),
         'calibration_height': float(entry_dict['calibration_height']),
-        'probe_feed_rate': float(entry_dict['probe_feed_rate']),
         'calibration_feed_rate': float(entry_dict['calibration_feed_rate']),
         # Timing parameters (all defaults from input_configs.py GLOBAL_FIELDS)
         'row_start_wait': float(entry_dict['row_start_wait']),
-        'calibration_wait': float(entry_dict['calibration_wait']),
         'emptying_wait': float(entry_dict['emptying_wait']),
         'rinse_aspiration_wait': float(entry_dict['rinse_aspiration_wait']),
         'rinse_final_wait': float(entry_dict['rinse_final_wait']),
@@ -140,4 +154,42 @@ def collect_common_generation_data(self):
         'present_plate_y': float(entry_dict['present_plate_y']),
         'present_plate_speed': float(entry_dict['present_plate_speed']),
     }
+    log_options(
+        logger,
+        "generation.common_options_collected",
+        global_options=entry_dict,
+        workflow_path=common["workflow_path"],
+        spatial={
+            "x_abs": common["x_abs"],
+            "y_abs": common["y_abs"],
+            "x_offset": common["x_offset"],
+            "y_offset": common["y_offset"],
+        },
+        acceptance_square=common["acceptance_square"],
+        mesh_points=common["mesh_points"],
+        containers=common["containers"],
+        probe={"x": common["probe_x"], "y": common["probe_y"]},
+    )
+    return common
+
+
+def build_workflow_engine(common):
+    """Create the renderer with a fresh snapshot of all shared runtime values."""
+    from .gcode_workflow import WorkflowEngine, build_runtime_context_defaults
+
+    base_context = build_runtime_context_defaults()
+    base_context["global"] = dict(common["entry_dict"])
+    base_context["acceptance"] = dict(common["acceptance_square"])
+    workflow_source = common.get("workflow_data")
+    if workflow_source is None:
+        workflow_source = common.get("workflow_path", WORKFLOW_CONFIG)
+    engine = WorkflowEngine(workflow_source, base_context=base_context)
+    log_options(
+        logger,
+        "workflow.engine_created",
+        workflow_path=common.get("workflow_path", WORKFLOW_CONFIG),
+        workflow=engine.workflow,
+        resolved_custom_options=engine.custom_values,
+    )
+    return engine
 

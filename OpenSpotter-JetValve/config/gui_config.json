@@ -1,0 +1,29 @@
+{
+  "theme": "obsidian",
+  "window": {
+    "width": 1400,
+    "height": 900,
+    "startup_maximized": false
+  },
+  "canvas": {
+    "background_color": "#1e1e2e",
+    "grid_color": "#45475a",
+    "spot_radius_px": 5,
+    "line_width_px": 1
+  },
+  "colors": {
+    "primary": "#a6e3a1",
+    "secondary": "#f38ba8",
+    "accent": "#89b4fa",
+    "background": "#1e1e2e",
+    "surface": "#313244",
+    "text": "#cdd6f4",
+    "muted": "#6c7086"
+  },
+  "panels": {
+    "left_sidebar_width": 250,
+    "bottom_panel_height": 150,
+    "show_camera": true,
+    "show_status": true
+  }
+}
