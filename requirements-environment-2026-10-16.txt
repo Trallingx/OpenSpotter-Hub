@@ -1,0 +1,15 @@
+# Installed package metadata snapshot; not an application dependency analysis.
+# Runtime/reinstallation has not been tested. Python: 3.13.13
+# Local/editable/VCS installs need separate source recovery; marked below.
+aiohappyeyeballs==2.7.1
+aiohttp==3.14.4
+aiosignal==1.4.0
+attrs==26.1.0
+frozenlist==1.8.0
+idna==3.18
+multidict==6.7.1
+# REVIEW direct/local source: openspotter-control==0.1.0.dev0
+pillow==12.3.0
+pip==26.0.1
+propcache==0.5.2
+yarl==1.24.5
